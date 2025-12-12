@@ -17,7 +17,8 @@ from src.environment import MoleculeEnv
 class EpisodeTrajectory:
     logps: List[torch.Tensor]
     values: List[torch.Tensor]
-    entropies: List[torch.Tensor]
+    policy_probs: List[torch.Tensor]
+    reward: float
     smiles: str | None
     valid: float
     unique: float
@@ -31,10 +32,10 @@ class QuantumActorCritic(nn.Module):
     - Critic: outputs scalar V(s) for advantage estimation.
     """
 
-    def __init__(self, n_wires: int = 9, layers: int = 4, lr: float = 0.01, entropy_coef: float = 0.02):
+    def __init__(self, n_wires: int = 9, layers: int = 4, lr: float = 0.0005, entropy_beta: float = 0.001):
         super().__init__()
         self.n_wires = n_wires
-        self.entropy_coef = entropy_coef
+        self.entropy_beta = entropy_beta
 
         act_qnode, act_shapes = actor_qnode(n_wires=n_wires, layers=layers)
         crt_qnode, crt_shapes = critic_qnode(n_wires=n_wires, layers=layers)
@@ -43,16 +44,18 @@ class QuantumActorCritic(nn.Module):
         self.critic = qml.qnn.TorchLayer(crt_qnode, weight_shapes=crt_shapes)
         self.optimizer = optim.Adam(self.parameters(), lr=lr)
 
-    def policy(self, state_vec: torch.Tensor) -> D.Categorical:
+    def policy(self, state_vec: torch.Tensor):
         logits = self.actor(state_vec)
-        return D.Categorical(logits=logits)
+        probs = torch.softmax(logits, dim=-1)
+        dist = D.Categorical(probs=probs)
+        return dist, logits, probs
 
     def value(self, state_vec: torch.Tensor) -> torch.Tensor:
         return self.critic(state_vec)
 
     def act(self, history: List[int], epsilon: float = 0.1) -> Dict:
         state_vec = encode_state(history, n_wires=self.n_wires)
-        dist = self.policy(state_vec)
+        dist, logits, probs = self.policy(state_vec)
         action = dist.sample()
 
         # Epsilon-greedy exploration
@@ -67,12 +70,11 @@ class QuantumActorCritic(nn.Module):
             action = torch.tensor(random.choice([1, 2, 3]))
 
         logp = dist.log_prob(action)
-        entropy = dist.entropy()
         value = self.value(state_vec)
         return {
             "action": int(action.item()),
             "logp": logp,
-            "entropy": entropy,
+            "policy_probs": probs,
             "value": value.squeeze(-1),
         }
 
@@ -81,7 +83,7 @@ class QuantumActorCritic(nn.Module):
         history: List[int] = []
         logps: List[torch.Tensor] = []
         values: List[torch.Tensor] = []
-        entropies: List[torch.Tensor] = []
+        policy_probs: List[torch.Tensor] = []
 
         while True:
             step_out = self.act(history, epsilon=epsilon)
@@ -90,7 +92,7 @@ class QuantumActorCritic(nn.Module):
 
             logps.append(step_out["logp"])
             values.append(step_out["value"])
-            entropies.append(step_out["entropy"])
+            policy_probs.append(step_out["policy_probs"])
 
             if env.done:
                 break
@@ -99,18 +101,20 @@ class QuantumActorCritic(nn.Module):
         unique_flag = 1.0 if valid_flag and smiles and smiles not in seen else 0.0
         if unique_flag:
             seen.add(smiles)
+        reward = env.shaped_reward(float(valid_flag), unique_flag)
 
         return EpisodeTrajectory(
             logps=logps,
             values=values,
-            entropies=entropies,
+            policy_probs=policy_probs,
+            reward=reward,
             smiles=smiles,
             valid=float(valid_flag),
             unique=float(unique_flag),
             length=len(history),
         )
 
-    def update_batch(self, trajectories: List[EpisodeTrajectory], batch_reward: float, gamma: float = 0.99) -> Dict[str, float]:
+    def update_batch(self, trajectories: List[EpisodeTrajectory], gamma: float = 0.99) -> Dict[str, float]:
         if not trajectories:
             return {"loss": 0.0, "actor_loss": 0.0, "critic_loss": 0.0, "entropy": 0.0}
 
@@ -122,8 +126,8 @@ class QuantumActorCritic(nn.Module):
             T = len(traj.logps)
             if T == 0:
                 continue
-            # Batch-level golden metric scaled by episode validity/uniqueness
-            reward = batch_reward * (0.5 * traj.valid + 0.5 * traj.unique)
+            # Reward shaping per episode
+            reward = traj.reward
             # Single terminal reward propagated backwards
             returns = torch.tensor(
                 [reward * (gamma ** (T - 1 - t)) for t in range(T)],
@@ -132,15 +136,18 @@ class QuantumActorCritic(nn.Module):
 
             logps = torch.stack(traj.logps)
             values = torch.stack(traj.values).view(-1)
-            ents = torch.stack(traj.entropies).view(-1)
+            probs = torch.stack(traj.policy_probs)
+
+            # Policy entropy using explicit softmax probabilities
+            entropy_term = -(probs * probs.clamp_min(1e-8).log()).sum(dim=-1).mean()
 
             advantages = returns - values.detach()
-            actor_loss = -(advantages * logps).mean() - self.entropy_coef * ents.mean()
+            actor_loss = -(advantages * logps).mean() - self.entropy_beta * entropy_term
             critic_loss = 0.5 * (returns - values).pow(2).mean()
 
             actor_losses.append(actor_loss)
             critic_losses.append(critic_loss)
-            entropy_vals.append(ents.mean().detach())
+            entropy_vals.append(entropy_term.detach())
 
         if not actor_losses:
             return {"loss": 0.0, "actor_loss": 0.0, "critic_loss": 0.0, "entropy": 0.0}
@@ -151,7 +158,7 @@ class QuantumActorCritic(nn.Module):
 
         self.optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.parameters(), 1.0)
+        torch.nn.utils.clip_grad_norm_(self.parameters(), 0.5)
         self.optimizer.step()
 
         return {

@@ -60,7 +60,7 @@ def train():
     ma_window = 10
 
     env = MoleculeEnv()
-    agent = QuantumActorCritic(n_wires=9, layers=4, lr=0.01, entropy_coef=0.02)
+    agent = QuantumActorCritic(n_wires=9, layers=4, lr=0.0005, entropy_beta=0.001)
     seen: set[str] = set()
 
     episode_marks: List[int] = []
@@ -90,7 +90,7 @@ def train():
         total_unique += int(sum(batch_unique_flags))
 
         batch_score = MoleculeEnv.golden_metric(batch_valid_flags, batch_unique_flags, current_batch)
-        loss_stats = agent.update_batch(trajectories, batch_reward=batch_score, gamma=0.99)
+        loss_stats = agent.update_batch(trajectories, gamma=0.99)
 
         episodes_done += current_batch
         episode_marks.append(episodes_done)

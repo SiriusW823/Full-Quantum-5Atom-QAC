@@ -3,4 +3,4 @@ set -e
 
 git init
 git add README.md requirements.txt setup_git.sh train.py src
-git commit -m "Add full quantum actor-critic for 5-atom molecule generation"
+git commit -m "Stabilize full quantum actor-critic (lr 5e-4, entropy reg, shaped reward)"

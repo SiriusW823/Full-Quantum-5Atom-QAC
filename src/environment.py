@@ -6,6 +6,7 @@ ATOM_TYPES = ["NONE", "C", "N", "O"]
 BOND_TYPES = ["NONE", "SINGLE", "DOUBLE", "TRIPLE"]
 MAX_ATOMS = 5
 SEQUENCE_LENGTH = 9  # Atom1 -> Bond1 -> Atom2 -> Bond2 -> Atom3 -> Bond3 -> Atom4 -> Bond4 -> Atom5
+C_VALIDITY_BONUS = 0.1
 
 
 @dataclass
@@ -37,7 +38,7 @@ class MoleculeEnv:
         safe_action = int(max(0, min(3, action)))  # clamp to valid token range
         self.history.append(safe_action)
         self.done = self._should_stop(safe_action)
-        return StepResult(self.history, self.done, {})
+        return StepResult(self.history, self.done, {"validity_bonus": C_VALIDITY_BONUS})
 
     def _should_stop(self, action: int) -> bool:
         idx = len(self.history) - 1
@@ -77,7 +78,8 @@ class MoleculeEnv:
             return None, 0.0, 0.0
 
         smiles, valid = self._atoms_bonds_to_smiles(atoms, bonds)
-        return smiles, float(valid), 0.0
+        reward = self.shaped_reward(float(valid), 0.0)  # unique handled externally
+        return smiles, float(valid), reward
 
     def _atoms_bonds_to_smiles(self, atoms: List[int], bonds: List[int]) -> Tuple[str | None, float]:
         mol = Chem.RWMol()
@@ -110,3 +112,11 @@ class MoleculeEnv:
         valid_count = sum(valid_flags)
         unique_count = sum(unique_flags)
         return (valid_count / total) * (unique_count / total)
+
+    @staticmethod
+    def shaped_reward(valid: float, unique: float) -> float:
+        """
+        Reward shaping that preserves the optimal policy while stabilizing gradients:
+        Reward = (Validity * Uniqueness) + C_VALIDITY_BONUS * Validity
+        """
+        return (valid * unique) + C_VALIDITY_BONUS * valid

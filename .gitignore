@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+.venv/
+training_convergence.png

@@ -11,12 +11,11 @@ End-to-end **quantum reinforcement learning** system for de novo molecules with 
 - **Actor (Agent A):** 9-qubit VQC (AngleEmbedding → StronglyEntanglingLayers, 4 layers) returning 4 expectation values → softmax → discrete action.
 - **Critic (Agent B):** Separate 9-qubit VQC with the same topology, outputs scalar `V(s)` for the advantage.
 - **State encoding:** 9-step discrete history (IDs 0–3) mapped to rotation angles in `[0, π]`.
-- **Reward:** Batch-level **Golden Metric**  
-  `Score = (Valid / Samples) * (Unique / Samples)`  
-  The score is computed every batch and propagated through the trajectories (scaled by validity/uniqueness).
+- **Reward shaping:** `Reward = (Validity * Uniqueness) + 0.1 * Validity` to stabilize gradients while preserving the optimal policy (Valid × Unique → 1). Golden Metric is still logged for convergence tracking.
 
 ### Training Loop (train.py)
-- Hyperparameters: `episodes=2000`, `batch_size=32`, `lr=0.01`, `entropy_coef=0.02`, `epsilon=0.15`.
+- Hyperparameters: `episodes=2000`, `batch_size=32`, `lr=0.0005`, `entropy_beta=0.001`, `epsilon=0.15`, gradient clip `0.5`.
+- Actor loss includes explicit policy entropy `H(π)` with β = 0.001 to reduce mode collapse.
 - Logs every ~50 episodes: batch score, valid/unique counts, actor/critic losses, and top-3 SMILES from the batch.
 - Saves convergence plot `training_convergence.png` with raw batch scores and a moving-average trendline.
 - Prints final Golden Metric: `(valid/episodes) * (unique/episodes)`.
@@ -42,7 +41,7 @@ python -m venv .venv
 .\.venv\Scripts\activate  # Windows
 pip install -r requirements.txt
 ```
-If `rdkit-pypi` fails on your platform, install RDKit via conda-forge and pip the rest.
+If `rdkit-pypi` fails on your platform, install RDKit via conda-forge and pip the rest. Packages are pinned to NumPy 1.26.x to avoid `_ARRAY_API` incompatibilities with RDKit and PennyLane.
 
 ### Run Training
 ```bash
