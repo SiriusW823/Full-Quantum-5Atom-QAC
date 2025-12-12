@@ -4,10 +4,7 @@ from typing import List
 
 import matplotlib.pyplot as plt
 import numpy as np
-try:
-    from sb3_contrib import DiscreteSAC  # newer sb3-contrib
-except Exception:
-    from sb3_contrib.sac import DiscreteSAC  # fallback for older path
+from sb3_contrib.qrdqn import QRDQN
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.env_util import make_vec_env
 
@@ -89,13 +86,14 @@ def main():
     vec_env = make_vec_env(MoleculeGenEnv, n_envs=1)
 
     reward_cb = RewardLogCallback()
-    callback = CallbackList([reward_cb, EveryNTimesteps(n_steps=1000, callback=BaseCallback())])
 
-    model = DiscreteSAC(
+    model = QRDQN(
         "MlpPolicy",
         vec_env,
         learning_rate=3e-4,
-        tau=0.005,
+        exploration_fraction=0.5,
+        exploration_initial_eps=1.0,
+        exploration_final_eps=0.1,
         gamma=0.99,
         verbose=1,
     )
