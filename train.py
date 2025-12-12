@@ -45,7 +45,7 @@ def plot_convergence(timesteps: List[int], rewards: List[float], out_path: str =
     plt.plot(timesteps, ma, label=f"Moving avg (w={window})", color="darkorange", linewidth=2.0)
     plt.xlabel("Timesteps")
     plt.ylabel("Episode Reward")
-    plt.title("DiscreteSAC Training Convergence")
+    plt.title("QRDQN Training Convergence")
     plt.grid(alpha=0.3)
     plt.legend()
     plt.tight_layout()
@@ -55,8 +55,10 @@ def plot_convergence(timesteps: List[int], rewards: List[float], out_path: str =
 
 def evaluate_policy(model, env, n_episodes: int = 2000):
     total_valid = 0
-    total_unique = 0
+    unique_valid = 0
     total_rewards = []
+    seen: set[str] = set()
+    all_smiles: List[str] = []
     for _ in range(n_episodes):
         obs, _ = env.reset()
         done = False
@@ -68,15 +70,25 @@ def evaluate_policy(model, env, n_episodes: int = 2000):
             done = terminated or truncated
             ep_reward += reward
         total_rewards.append(ep_reward)
-        total_valid += int(info.get("valid", 0.0))
-        total_unique += int(info.get("unique", 0.0))
-    golden_metric = (total_valid / n_episodes) * (total_unique / n_episodes)
+        if info.get("smiles"):
+            all_smiles.append(info["smiles"])
+        if info.get("valid", 0.0) >= 1.0:
+            total_valid += 1
+            if info.get("smiles") and info["smiles"] not in seen:
+                unique_valid += 1
+                seen.add(info["smiles"])
+    validity_fraction = total_valid / n_episodes if n_episodes > 0 else 0.0
+    uniqueness_fraction = (unique_valid / total_valid) if total_valid > 0 else 0.0
+    golden_metric = validity_fraction * uniqueness_fraction
     return {
         "episodes": n_episodes,
         "avg_reward": float(np.mean(total_rewards)),
         "valid": total_valid,
-        "unique": total_unique,
+        "unique": unique_valid,
+        "validity_fraction": validity_fraction,
+        "uniqueness_fraction": uniqueness_fraction,
         "golden_metric": golden_metric,
+        "smiles": all_smiles,
     }
 
 
@@ -97,7 +109,7 @@ def main():
         gamma=0.99,
         verbose=1,
     )
-    model.learn(total_timesteps=50000, callback=reward_cb)
+    model.learn(total_timesteps=20000, callback=reward_cb)
 
     # Final evaluation
     eval_env = MoleculeGenEnv()
@@ -106,7 +118,7 @@ def main():
     # Plot convergence
     plot_convergence(reward_cb.timesteps, reward_cb.rewards, out_path="training_convergence.png")
 
-    model.save("discrete_sac_molecule_gen")
+    model.save("qrdqn_molecule_gen")
 
     # Final Summary output
     print("\n===== Final summary =====")
@@ -114,7 +126,9 @@ def main():
     print(f"Average reward: {summary['avg_reward']:.4f}")
     print(f"Valid molecules: {summary['valid']}")
     print(f"Unique valid molecules: {summary['unique']}")
-    print(f"Golden metric (Valid/Samples * Unique/Samples): {summary['golden_metric']:.4f}")
+    print(f"Validity fraction: {summary['validity_fraction']:.4f}")
+    print(f"Uniqueness fraction (unique/valid): {summary['uniqueness_fraction']:.4f}")
+    print(f"Golden metric (Validity * Uniqueness): {summary['golden_metric']:.4f}")
     print("Saved convergence plot to training_convergence.png")
 
 
