@@ -4,7 +4,10 @@ from typing import List
 
 import matplotlib.pyplot as plt
 import numpy as np
-from sb3_contrib.sac import DiscreteSAC
+try:
+    from sb3_contrib import DiscreteSAC  # newer sb3-contrib
+except Exception:
+    from sb3_contrib.sac import DiscreteSAC  # fallback for older path
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.env_util import make_vec_env
 
