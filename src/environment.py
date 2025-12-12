@@ -1,6 +1,8 @@
-from dataclasses import dataclass
-from typing import List, Tuple, Dict
+import numpy as np
+from typing import List, Tuple, Dict, Any
 from rdkit import Chem
+import gym
+from gym import spaces
 
 ATOM_TYPES = ["NONE", "C", "N", "O"]
 BOND_TYPES = ["NONE", "SINGLE", "DOUBLE", "TRIPLE"]
@@ -9,36 +11,60 @@ SEQUENCE_LENGTH = 9  # Atom1 -> Bond1 -> Atom2 -> Bond2 -> Atom3 -> Bond3 -> Ato
 C_VALIDITY_BONUS = 0.1
 
 
-@dataclass
-class StepResult:
-    state: List[int]
-    done: bool
-    info: Dict
-
-
-class MoleculeEnv:
+class MoleculeGenEnv(gym.Env):
     """
-    Linear 5-atom builder.
-    - Atoms occupy even indices (0,2,4,6,8); bonds occupy odd indices (1,3,5,7).
-    - 'NONE' atom stops the sequence early and pads remaining slots with NONE.
+    Gym-compatible environment for linear 5-atom molecule generation.
+    Observation: length-9 vector of token ids (0-3), padded with 0.
+    Action space: Discrete(4) over token ids for current position.
+    Reward: at terminal step only, (valid * unique) + 0.1 * valid.
     """
+
+    metadata = {"render.modes": ["human"]}
 
     def __init__(self):
-        self.reset()
-
-    def reset(self) -> List[int]:
+        super().__init__()
+        self.action_space = spaces.Discrete(4)
+        self.observation_space = spaces.Box(low=0, high=3, shape=(SEQUENCE_LENGTH,), dtype=np.int64)
         self.history: List[int] = []
         self.done = False
-        return self.history
+        self.seen_smiles: set[str] = set()
 
-    def step(self, action: int) -> StepResult:
+    def reset(self, *, seed: int | None = None, options: Dict[str, Any] | None = None):
+        super().reset(seed=seed)
+        self.history = []
+        self.done = False
+        return self._get_obs(), {}
+
+    def step(self, action: int):
         if self.done:
-            return StepResult(self.history, True, {})
+            return self._get_obs(), 0.0, True, False, {}
 
-        safe_action = int(max(0, min(3, action)))  # clamp to valid token range
+        safe_action = int(np.clip(action, 0, 3))
+        # Prevent trivial empty molecule: first atom cannot be NONE
+        if len(self.history) == 0 and safe_action == 0:
+            safe_action = 1
+
         self.history.append(safe_action)
         self.done = self._should_stop(safe_action)
-        return StepResult(self.history, self.done, {"validity_bonus": C_VALIDITY_BONUS})
+
+        reward = 0.0
+        info: Dict[str, Any] = {}
+
+        if self.done:
+            smiles, valid, unique = self.finalize()
+            reward = self.shaped_reward(valid, unique)
+            info = {
+                "smiles": smiles,
+                "valid": valid,
+                "unique": unique,
+                "length": len(self.history),
+            }
+
+        return self._get_obs(), float(reward), self.done, False, info
+
+    def _get_obs(self) -> np.ndarray:
+        obs = self.history + [0] * (SEQUENCE_LENGTH - len(self.history))
+        return np.array(obs, dtype=np.int64)
 
     def _should_stop(self, action: int) -> bool:
         idx = len(self.history) - 1
@@ -53,10 +79,6 @@ class MoleculeEnv:
         return False
 
     def finalize(self) -> Tuple[str | None, float, float]:
-        """
-        Build SMILES from the current history.
-        Returns (smiles, valid_flag, unique_placeholder).
-        """
         atoms: List[int] = []
         bonds: List[int] = []
 
@@ -78,9 +100,12 @@ class MoleculeEnv:
             return None, 0.0, 0.0
 
         smiles, valid = self._atoms_bonds_to_smiles(atoms, bonds)
-        unique = 0.0  # handled by caller once SMILES uniqueness is known
-        reward = self.shaped_reward(float(valid), unique)
-        return smiles, float(valid), reward
+        unique = 0.0
+        if valid and smiles:
+            unique = 1.0 if smiles not in self.seen_smiles else 0.0
+            if unique:
+                self.seen_smiles.add(smiles)
+        return smiles, float(valid), float(unique)
 
     def _atoms_bonds_to_smiles(self, atoms: List[int], bonds: List[int]) -> Tuple[str | None, float]:
         mol = Chem.RWMol()
@@ -97,7 +122,6 @@ class MoleculeEnv:
                 mol.AddBond(atom_indices[i], atom_indices[i + 1], bond_type)
             Chem.SanitizeMol(mol)
             smiles = Chem.MolToSmiles(mol, canonical=True)
-            # If RDKit produced disconnected fragments, degrade to linear atom string
             if "." in smiles:
                 fallback = "".join(ATOM_TYPES[a] for a in atoms if a != 0)
                 return (fallback if fallback else None), (1.0 if fallback else 0.0)
