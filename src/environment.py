@@ -8,7 +8,6 @@ ATOM_TYPES = ["NONE", "C", "N", "O"]
 BOND_TYPES = ["NONE", "SINGLE", "DOUBLE", "TRIPLE"]
 MAX_ATOMS = 5
 SEQUENCE_LENGTH = 9  # Atom1 -> Bond1 -> Atom2 -> Bond2 -> Atom3 -> Bond3 -> Atom4 -> Bond4 -> Atom5
-C_VALIDITY_BONUS = 0.1
 
 
 class MoleculeGenEnv(gym.Env):
@@ -141,7 +140,7 @@ class MoleculeGenEnv(gym.Env):
     @staticmethod
     def shaped_reward(valid: float, unique: float) -> float:
         """
-        Reward shaping that preserves the optimal policy while stabilizing gradients:
-        Reward = (Validity * Uniqueness) + C_VALIDITY_BONUS * Validity
+        Aggressive shaping: reward = 10 * (valid * unique)
+        Removes validity bonus to avoid local optima.
         """
-        return (valid * unique) + C_VALIDITY_BONUS * valid
+        return 10.0 * (valid * unique)
