@@ -36,14 +36,16 @@ class QuantumActorCritic(nn.Module):
         super().__init__()
         self.n_wires = n_wires
         self.entropy_beta = entropy_beta
-
-        act_qnode_fn, act_shapes = actor_qnode(n_wires=n_wires, max_layers=max_layers)
-        crt_qnode_fn, crt_shapes = critic_qnode(n_wires=n_wires, max_layers=max_layers)
-
-        self.actor = qml.qnn.TorchLayer(act_qnode_fn, weight_shapes=act_shapes)
-        self.critic = qml.qnn.TorchLayer(crt_qnode_fn, weight_shapes=crt_shapes)
-        self.optimizer = optim.Adam(self.parameters(), lr=lr)
         self.max_layers = max_layers
+
+        self.actor_qnode = actor_qnode(n_wires=n_wires)
+        self.critic_qnode = critic_qnode(n_wires=n_wires)
+
+        # Trainable quantum parameters (shared across dynamic depths)
+        self.actor_weights = nn.Parameter(0.01 * torch.randn(max_layers, n_wires, 3))
+        self.critic_weights = nn.Parameter(0.01 * torch.randn(max_layers, n_wires, 3))
+
+        self.optimizer = optim.Adam(self.parameters(), lr=lr)
 
     def _dynamic_layers(self, state_vec: torch.Tensor) -> int:
         """
@@ -56,13 +58,15 @@ class QuantumActorCritic(nn.Module):
 
     def policy(self, state_vec: torch.Tensor):
         num_layers = self._dynamic_layers(state_vec)
-        logits = self.actor(state_vec, num_layers=num_layers)
+        weights = self.actor_weights[:num_layers]
+        logits = self.actor_qnode(state_vec, weights)
         probs = torch.softmax(logits, dim=-1)
         dist = D.Categorical(probs=probs)
         return dist, logits, probs, num_layers
 
     def value(self, state_vec: torch.Tensor, num_layers: int) -> torch.Tensor:
-        return self.critic(state_vec, num_layers=num_layers)
+        weights = self.critic_weights[:num_layers]
+        return self.critic_qnode(state_vec, weights)
 
     def act(self, history: List[int], epsilon: float = 0.1) -> Dict:
         state_vec = encode_state(history, n_wires=self.n_wires)
