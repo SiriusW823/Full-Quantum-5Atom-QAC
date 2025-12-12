@@ -1,8 +1,8 @@
 import numpy as np
 from typing import List, Tuple, Dict, Any
 from rdkit import Chem
-import gym
-from gym import spaces
+import gymnasium as gym
+from gymnasium import spaces
 
 ATOM_TYPES = ["NONE", "C", "N", "O"]
 BOND_TYPES = ["NONE", "SINGLE", "DOUBLE", "TRIPLE"]

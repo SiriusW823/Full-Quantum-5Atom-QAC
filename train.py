@@ -13,9 +13,11 @@ def evaluate(model, env, n_episodes: int = 5):
         obs, _ = env.reset()
         done = False
         ep_reward = 0.0
+        info = {}
         while not done:
             action, _ = model.predict(obs, deterministic=True)
-            obs, reward, done, _, info = env.step(action)
+            obs, reward, terminated, truncated, info = env.step(action)
+            done = terminated or truncated
             ep_reward += reward
         rewards.append(ep_reward)
         if info.get("smiles"):
@@ -27,8 +29,7 @@ def evaluate(model, env, n_episodes: int = 5):
 def main():
     os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
-    env = MoleculeGenEnv()
-    vec_env = make_vec_env(lambda: env, n_envs=1)
+    vec_env = make_vec_env(MoleculeGenEnv, n_envs=1)
 
     model = PPO("MlpPolicy", vec_env, learning_rate=3e-4, verbose=1)
     model.learn(total_timesteps=50000)
