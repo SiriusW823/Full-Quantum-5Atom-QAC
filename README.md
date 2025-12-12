@@ -15,8 +15,8 @@ End-to-end **quantum reinforcement learning** system for de novo molecules with 
 - **Reward shaping:** `Reward = (Validity * Uniqueness) + 0.1 * Validity` to stabilize gradients while preserving the optimal policy (Valid × Unique → 1). Golden Metric is still logged for convergence tracking.
 
 ### Training Loop (train.py)
-- Hyperparameters: `episodes=2000`, `batch_size=32`, `lr=0.0005`, `entropy_beta=0.001`, `epsilon=0.15`, gradient clip `0.5`.
-- Actor loss includes explicit policy entropy `H(π)` with β = 0.001 to reduce mode collapse; gradients clipped at 0.5.
+- Hyperparameters: `episodes=2000`, `batch_size=32`, `lr=0.0001`, `entropy_beta=0.01`, `epsilon=0.15`, gradient clip `0.5`.
+- Actor loss includes explicit policy entropy `H(π)` with β = 0.01 to counter mode collapse; gradients clipped at 0.5.
 - Logs every ~50 episodes: batch score, valid/unique counts, actor/critic losses, and top-3 SMILES from the batch.
 - Saves convergence plot `training_convergence.png` with raw batch scores and a moving-average trendline.
 - Prints final Golden Metric: `(valid/episodes) * (unique/episodes)`.
