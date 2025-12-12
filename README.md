@@ -1,39 +1,44 @@
-## Full Quantum RL for 5-Atom Molecule Generation
+## QRDQN-based Molecule Generation (1-step bandit, aggressive uniqueness reward)
 
-End-to-end **quantum reinforcement learning** system for de novo molecules with up to **5 heavy atoms**. Both policy and value functions are PennyLane **variational quantum circuits (VQCs)**; no classical neural networks are used. RDKit is used only for assembly/validation, and Matplotlib provides convergence visualization.
+This project now uses **SB3-Contrib QRDQN** as a one-step contextual bandit to pick a discrete SMILES template. The quantum VQC actor-critic stack was removed for stability; exploration and distributional Q-learning handle mode collapse. RDKit validates molecules; Matplotlib plots training convergence.
 
-### Chemistry & Sequence
-- Sequence length 9: Atom1 → Bond1 → Atom2 → Bond2 → Atom3 → Bond3 → Atom4 → Bond4 → Atom5.
-- Allowed atoms: `['NONE', 'C', 'N', 'O']`; allowed bonds: `['NONE', 'SINGLE', 'DOUBLE', 'TRIPLE']`.
-- Choosing `NONE` on an atom step halts generation early (padding the rest with NONE). Maximum heavy atoms = 5.
+### Current environment & reward
+- **Action space:** Discrete(4) → predefined SMILES templates `["C","N","O","CO"]`.
+- **Observation:** Dummy zero vector (shape=(1,)).
+- **Terminal reward:** `10.0 * (valid * unique)`; uniqueness tracked across episodes.
+- **Validity:** RDKit sanitization + heavy atoms ≤ 5.
+- **Episode length:** 1 step (bandit).
 
-### Quantum Actor–Critic
-- **Actor (Agent A):** 9-qubit VQC with **dynamic depth** (AngleEmbedding → StronglyEntanglingLayers, 2–5 layers) returning 4 expectation values → softmax → discrete action.
-- **Critic (Agent B):** Separate 9-qubit VQC with matched dynamic depth, outputs scalar `V(s)` for the advantage.
-- **Dynamic depth (DQC):** Layers scale with active steps in the encoded history: ceil(2 + (active/9) * 3) → clipped to [2,5].
-- **State encoding:** 9-step discrete history (IDs 0–3) mapped to rotation angles in `[0, π]`.
-- **Reward shaping:** `Reward = (Validity * Uniqueness) + 0.1 * Validity` to stabilize gradients while preserving the optimal policy (Valid × Unique → 1). Golden Metric is still logged for convergence tracking.
+### Algorithm & training
+- **Algorithm:** `sb3_contrib.qrdqn.QRDQN` (MlpPolicy).
+- **Hyperparameters:** `learning_rate=3e-4`, `gamma=0.99`, `exploration_fraction=0.5`, `exploration_initial_eps=1.0`, `exploration_final_eps=0.1`.
+- **Timesteps:** 100,000.
+- **Logging:** Rewards logged via callback; convergence plot saved to `training_convergence.png`.
+- **Evaluation:** 2,000 rollouts computing Validity, Uniqueness, and Golden Metric = Validity × Uniqueness.
 
-### Training Loop (train.py)
-- Hyperparameters: `episodes=2000`, `batch_size=32`, `lr=0.0001`, `entropy_beta=0.01`, `epsilon=0.15`, gradient clip `0.5`.
-- Actor loss includes explicit policy entropy `H(π)` with β = 0.01 to counter mode collapse; gradients clipped at 0.5.
-- Logs every ~50 episodes: batch score, valid/unique counts, actor/critic losses, and top-3 SMILES from the batch.
-- Saves convergence plot `training_convergence.png` with raw batch scores and a moving-average trendline.
-- Prints final Golden Metric: `(valid/episodes) * (unique/episodes)`.
+### Final run (latest)
+- Episodes evaluated: 2000
+- Average reward: 0.0050
+- Valid molecules: 2000
+- Unique valid molecules: 1
+- Validity fraction: 1.0000
+- Uniqueness fraction (unique/valid): 0.0005
+- Golden Metric: 0.0005
+- Convergence plot: `training_convergence.png` (shows early spike then collapse to 0 reward).
 
-### Project Layout
+### Files
 ```
 .
 ├── README.md
-├── requirements.txt
+├── requirements.txt        # pinned deps (rdkit, sb3, sb3-contrib, gymnasium, etc.)
 ├── setup_git.sh
 ├── src/
 │   ├── __init__.py
-│   ├── circuits.py       # 9-qubit actor/critic qnodes with StronglyEntanglingLayers
-│   ├── embedding.py      # map 9-step history -> [0, π] rotation angles
-│   ├── environment.py    # RDKit-backed linear builder + Golden Metric helper
-│   └── agent.py          # QuantumActorCritic (sampling + batch updates)
-└── train.py              # Training loop, logging, convergence plotting
+│   ├── environment.py      # one-step bandit env, aggressive reward = 10 * valid * unique
+│   ├── circuits.py         # legacy (unused in current pipeline)
+│   ├── embedding.py        # legacy (unused)
+│   └── agent.py            # legacy (unused)
+└── train.py                # QRDQN training, logging, plotting, evaluation
 ```
 
 ### Installation
@@ -42,12 +47,12 @@ python -m venv .venv
 .\.venv\Scripts\activate  # Windows
 pip install -r requirements.txt
 ```
-If `rdkit-pypi` fails on your platform, install RDKit via conda-forge and pip the rest. Packages are pinned to NumPy 1.26.x to avoid `_ARRAY_API` incompatibilities with RDKit and PennyLane.
+If `rdkit-pypi` fails, install RDKit via conda-forge and pip the rest.
 
-### Run Training
+### Run training
 ```bash
 python train.py
 ```
 Outputs:
-- Console logs with batch Golden Metric and sample SMILES.
-- `training_convergence.png` in the project root tracking the Golden Metric over training.
+- Console logs during training; final summary after 2,000 eval episodes.
+- `training_convergence.png` convergence curve in project root.
