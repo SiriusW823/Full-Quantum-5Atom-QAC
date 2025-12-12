@@ -32,7 +32,7 @@ class QuantumActorCritic(nn.Module):
     - Critic: outputs scalar V(s) for advantage estimation.
     """
 
-    def __init__(self, n_wires: int = 9, max_layers: int = 5, lr: float = 0.0005, entropy_beta: float = 0.001):
+    def __init__(self, n_wires: int = 9, max_layers: int = 5, lr: float = 0.0001, entropy_beta: float = 0.01):
         super().__init__()
         self.n_wires = n_wires
         self.entropy_beta = entropy_beta

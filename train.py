@@ -60,7 +60,7 @@ def train():
     ma_window = 10
 
     env = MoleculeEnv()
-    agent = QuantumActorCritic(n_wires=9, max_layers=5, lr=0.0005, entropy_beta=0.001)
+    agent = QuantumActorCritic(n_wires=9, max_layers=5, lr=0.0001, entropy_beta=0.01)
     seen: set[str] = set()
 
     episode_marks: List[int] = []
