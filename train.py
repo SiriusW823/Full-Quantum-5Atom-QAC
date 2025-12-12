@@ -109,7 +109,7 @@ def main():
         gamma=0.99,
         verbose=1,
     )
-    model.learn(total_timesteps=20000, callback=reward_cb)
+    model.learn(total_timesteps=100000, callback=reward_cb)
 
     # Final evaluation
     eval_env = MoleculeGenEnv()
