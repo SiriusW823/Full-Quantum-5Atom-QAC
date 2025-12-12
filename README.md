@@ -8,14 +8,15 @@ End-to-end **quantum reinforcement learning** system for de novo molecules with 
 - Choosing `NONE` on an atom step halts generation early (padding the rest with NONE). Maximum heavy atoms = 5.
 
 ### Quantum Actor–Critic
-- **Actor (Agent A):** 9-qubit VQC (AngleEmbedding → StronglyEntanglingLayers, 4 layers) returning 4 expectation values → softmax → discrete action.
-- **Critic (Agent B):** Separate 9-qubit VQC with the same topology, outputs scalar `V(s)` for the advantage.
+- **Actor (Agent A):** 9-qubit VQC with **dynamic depth** (AngleEmbedding → StronglyEntanglingLayers, 2–5 layers) returning 4 expectation values → softmax → discrete action.
+- **Critic (Agent B):** Separate 9-qubit VQC with matched dynamic depth, outputs scalar `V(s)` for the advantage.
+- **Dynamic depth (DQC):** Layers scale with active steps in the encoded history: ceil(2 + (active/9) * 3) → clipped to [2,5].
 - **State encoding:** 9-step discrete history (IDs 0–3) mapped to rotation angles in `[0, π]`.
 - **Reward shaping:** `Reward = (Validity * Uniqueness) + 0.1 * Validity` to stabilize gradients while preserving the optimal policy (Valid × Unique → 1). Golden Metric is still logged for convergence tracking.
 
 ### Training Loop (train.py)
 - Hyperparameters: `episodes=2000`, `batch_size=32`, `lr=0.0005`, `entropy_beta=0.001`, `epsilon=0.15`, gradient clip `0.5`.
-- Actor loss includes explicit policy entropy `H(π)` with β = 0.001 to reduce mode collapse.
+- Actor loss includes explicit policy entropy `H(π)` with β = 0.001 to reduce mode collapse; gradients clipped at 0.5.
 - Logs every ~50 episodes: batch score, valid/unique counts, actor/critic losses, and top-3 SMILES from the batch.
 - Saves convergence plot `training_convergence.png` with raw batch scores and a moving-average trendline.
 - Prints final Golden Metric: `(valid/episodes) * (unique/episodes)`.

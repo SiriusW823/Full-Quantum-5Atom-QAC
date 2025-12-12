@@ -32,30 +32,41 @@ class QuantumActorCritic(nn.Module):
     - Critic: outputs scalar V(s) for advantage estimation.
     """
 
-    def __init__(self, n_wires: int = 9, layers: int = 4, lr: float = 0.0005, entropy_beta: float = 0.001):
+    def __init__(self, n_wires: int = 9, max_layers: int = 5, lr: float = 0.0005, entropy_beta: float = 0.001):
         super().__init__()
         self.n_wires = n_wires
         self.entropy_beta = entropy_beta
 
-        act_qnode, act_shapes = actor_qnode(n_wires=n_wires, layers=layers)
-        crt_qnode, crt_shapes = critic_qnode(n_wires=n_wires, layers=layers)
+        act_qnode_fn, act_shapes = actor_qnode(n_wires=n_wires, max_layers=max_layers)
+        crt_qnode_fn, crt_shapes = critic_qnode(n_wires=n_wires, max_layers=max_layers)
 
-        self.actor = qml.qnn.TorchLayer(act_qnode, weight_shapes=act_shapes)
-        self.critic = qml.qnn.TorchLayer(crt_qnode, weight_shapes=crt_shapes)
+        self.actor = qml.qnn.TorchLayer(act_qnode_fn, weight_shapes=act_shapes)
+        self.critic = qml.qnn.TorchLayer(crt_qnode_fn, weight_shapes=crt_shapes)
         self.optimizer = optim.Adam(self.parameters(), lr=lr)
+        self.max_layers = max_layers
+
+    def _dynamic_layers(self, state_vec: torch.Tensor) -> int:
+        """
+        Compute dynamic depth based on active (non-zero) angles in the state vector.
+        Scales active steps (0-9) to layers in [2, max_layers] (ceil).
+        """
+        active_steps = (state_vec != 0).sum().float()
+        num_layers = torch.ceil(2 + (active_steps / 9.0) * 3.0)
+        return int(torch.clamp(num_layers, 2, self.max_layers).item())
 
     def policy(self, state_vec: torch.Tensor):
-        logits = self.actor(state_vec)
+        num_layers = self._dynamic_layers(state_vec)
+        logits = self.actor(state_vec, num_layers=num_layers)
         probs = torch.softmax(logits, dim=-1)
         dist = D.Categorical(probs=probs)
-        return dist, logits, probs
+        return dist, logits, probs, num_layers
 
-    def value(self, state_vec: torch.Tensor) -> torch.Tensor:
-        return self.critic(state_vec)
+    def value(self, state_vec: torch.Tensor, num_layers: int) -> torch.Tensor:
+        return self.critic(state_vec, num_layers=num_layers)
 
     def act(self, history: List[int], epsilon: float = 0.1) -> Dict:
         state_vec = encode_state(history, n_wires=self.n_wires)
-        dist, logits, probs = self.policy(state_vec)
+        dist, logits, probs, num_layers = self.policy(state_vec)
         action = dist.sample()
 
         # Epsilon-greedy exploration
@@ -70,12 +81,13 @@ class QuantumActorCritic(nn.Module):
             action = torch.tensor(random.choice([1, 2, 3]))
 
         logp = dist.log_prob(action)
-        value = self.value(state_vec)
+        value = self.value(state_vec, num_layers=num_layers)
         return {
             "action": int(action.item()),
             "logp": logp,
             "policy_probs": probs,
             "value": value.squeeze(-1),
+            "num_layers": num_layers,
         }
 
     def rollout_episode(self, env: MoleculeEnv, seen: Set[str], epsilon: float = 0.1) -> EpisodeTrajectory:
@@ -139,7 +151,7 @@ class QuantumActorCritic(nn.Module):
             probs = torch.stack(traj.policy_probs)
 
             # Policy entropy using explicit softmax probabilities
-            entropy_term = -(probs * probs.clamp_min(1e-8).log()).sum(dim=-1).mean()
+            entropy_term = -(probs * probs.clamp_min(1e-9).log()).sum(dim=-1).mean()
 
             advantages = returns - values.detach()
             actor_loss = -(advantages * logps).mean() - self.entropy_beta * entropy_term

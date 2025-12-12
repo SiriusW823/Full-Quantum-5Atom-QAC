@@ -78,7 +78,8 @@ class MoleculeEnv:
             return None, 0.0, 0.0
 
         smiles, valid = self._atoms_bonds_to_smiles(atoms, bonds)
-        reward = self.shaped_reward(float(valid), 0.0)  # unique handled externally
+        unique = 0.0  # handled by caller once SMILES uniqueness is known
+        reward = self.shaped_reward(float(valid), unique)
         return smiles, float(valid), reward
 
     def _atoms_bonds_to_smiles(self, atoms: List[int], bonds: List[int]) -> Tuple[str | None, float]:
