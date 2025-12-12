@@ -12,7 +12,7 @@ def actor_qnode(n_wires: int = 9):
     def circuit(inputs, weights):
         qml.AngleEmbedding(inputs, wires=range(n_wires), rotation="Y")
         qml.StronglyEntanglingLayers(weights, wires=range(n_wires))
-        return [qml.expval(qml.PauliZ(i)) for i in range(4)]
+        return qml.math.stack([qml.expval(qml.PauliZ(i)) for i in range(4)])
 
     return circuit
 

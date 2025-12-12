@@ -60,6 +60,8 @@ class QuantumActorCritic(nn.Module):
         num_layers = self._dynamic_layers(state_vec)
         weights = self.actor_weights[:num_layers]
         logits = self.actor_qnode(state_vec, weights)
+        if isinstance(logits, (list, tuple)):
+            logits = torch.stack([torch.as_tensor(l) for l in logits])
         probs = torch.softmax(logits, dim=-1)
         dist = D.Categorical(probs=probs)
         return dist, logits, probs, num_layers
