@@ -30,7 +30,7 @@ class QuantumPolicy(nn.Module):
             weight_params=ansatz.parameters,
         )
         self.q_layer = TorchConnector(qnn)
-        self.actor_head = nn.Linear(1, 11)
+        self.actor_head = nn.Linear(1, 30)
         self.value_head = nn.Linear(1, 1)
         self.optimizer = optim.Adam(self.parameters(), lr=lr)
 

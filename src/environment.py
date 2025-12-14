@@ -6,60 +6,31 @@ from gymnasium import spaces
 from qiskit import QuantumCircuit, transpile
 from qiskit_aer import AerSimulator
 
-# 5-bit scaffold map (toy library)
-BITSTRING_TO_SMILES: Dict[str, str] = {
-    "00000": "CCCCC",
-    "00001": "C1CCCC1",
-    "00010": "C=CC=C",
-    "00011": "C#CC#C",
-    "00100": "NCCCN",
-    "00101": "OCCCO",
-    "00110": "CCNCC",
-    "00111": "CCOCC",
-    "01000": "CCNCN",
-    "01001": "CCOCO",
-    "01010": "CNCNC",
-    "01011": "COCOC",
-    "01100": "NCOCN",
-    "01101": "NCONC",
-    "01110": "OCOCO",
-    "01111": "OCNCO",
-    "10000": "C1CCN1",
-    "10001": "C1CCO1",
-    "10010": "N1CCN1",
-    "10011": "O1CCO1",
-    "10100": "C1NCO1",
-    "10101": "C1OCO1",
-    "10110": "N1COC1",
-    "10111": "O1CNC1",
-    "11000": "CCCNC",
-    "11001": "CCCOC",
-    "11010": "CCNOC",
-    "11011": "CCONC",
-    "11100": "NCCOC",
-    "11101": "OCCNC",
-    "11110": "NCCCN",
-    "11111": "OCCCO",
-}
-
-STRUCTURE_NAMES = {0: "Linear", 1: "Full", 2: "Ring"}
-NUM_STRUCTURES = 3
 MAX_HEAVY = 5
+N_QUBITS = 5
+LAYERS = 3  # each layer: per-qubit Ry/Rz plus ring entanglement
+PARAMS_PER_QUBIT_PER_LAYER = 2
+ACTION_DIM = N_QUBITS * PARAMS_PER_QUBIT_PER_LAYER * LAYERS  # 5*2*3 = 30
 
 
 class MoleculeGenEnv(gym.Env):
     """
-    One-step quantum generator:
-    - Action: Box(11,) -> 10 rotation params + 1 structure selector (continuous -> discrete 0..2)
-    - Observation: dummy zero vector
-    - Reward: 10 * (valid * unique) based on bitstring->SMILES mapping
+    One-step quantum generator with direct atom mapping:
+    - Action: Box(ACTION_DIM,) rotation params.
+    - Circuit: Ry/Rz per qubit across multiple layers, ring entanglement each layer.
+    - Measurement: 100 shots, majority vote bitstring.
+    - Mapping: bit 0 -> C, bit 1 -> N; build a 5-atom ring.
+    - Reward:
+        invalid -> -0.1
+        valid & repeated -> -0.5
+        valid & unique -> +10.0
     """
 
     metadata = {"render.modes": ["human"]}
 
     def __init__(self):
         super().__init__()
-        self.action_space = spaces.Box(low=-np.pi, high=np.pi, shape=(11,), dtype=np.float32)
+        self.action_space = spaces.Box(low=-np.pi, high=np.pi, shape=(ACTION_DIM,), dtype=np.float32)
         self.observation_space = spaces.Box(low=0.0, high=0.0, shape=(1,), dtype=np.float32)
         self.sim = AerSimulator()
         self.seen: set[str] = set()
@@ -71,14 +42,12 @@ class MoleculeGenEnv(gym.Env):
 
     def step(self, action: np.ndarray):
         params = np.asarray(action, dtype=np.float32).flatten()
-        if params.shape[0] < 11:
-            raise ValueError("Action must have length 11 (10 angles + 1 structure value).")
-        rot_params = np.clip(params[:10], -np.pi, np.pi)
-        structure_val = params[10]
-        structure_idx = int(np.round(structure_val)) % NUM_STRUCTURES
+        if params.shape[0] < ACTION_DIM:
+            raise ValueError(f"Action must have length {ACTION_DIM} rotation parameters.")
+        params = np.clip(params, -np.pi, np.pi)
 
-        bitstring = self._run_qiskit_circuit(rot_params, structure_idx)
-        smiles = BITSTRING_TO_SMILES.get(bitstring, None)
+        bitstring = self._run_qiskit_circuit(params)
+        smiles = self._bitstring_to_smiles(bitstring)
 
         valid = 0.0
         unique = 0.0
@@ -88,43 +57,52 @@ class MoleculeGenEnv(gym.Env):
                 unique = 1.0
                 self.seen.add(smiles)
 
-        # Reward shaping: small bonus for validity, big bonus for uniqueness, small penalty for invalid
-        BASE_VALIDITY_REWARD = 0.01
-        if valid >= 1.0:
-            reward = BASE_VALIDITY_REWARD
-            if unique >= 1.0:
-                reward += 10.0 * unique
-        else:
+        if valid < 1.0:
             reward = -0.1
-        info = {"bitstring": bitstring, "smiles": smiles, "valid": valid, "unique": unique, "structure": STRUCTURE_NAMES[structure_idx]}
+        elif unique < 1.0:
+            reward = -0.5
+        else:
+            reward = 10.0
+
+        info = {"bitstring": bitstring, "smiles": smiles, "valid": valid, "unique": unique}
         obs = np.zeros(self.observation_space.shape, dtype=np.float32)
         return obs, float(reward), True, False, info
 
-    def _run_qiskit_circuit(self, params: np.ndarray, structure_idx: int) -> str:
-        qc = QuantumCircuit(5)
-        for i in range(5):
-            qc.ry(float(params[i % 5]), i)
-            qc.rz(float(params[5 + (i % 5)]), i)
-
-        if structure_idx == 1:  # Full
-            for i in range(5):
-                for j in range(i + 1, 5):
-                    qc.cx(i, j)
-        elif structure_idx == 2:  # Ring
-            for i in range(5):
-                qc.cx(i, (i + 1) % 5)
-        else:  # Linear
-            for i in range(4):
-                qc.cx(i, i + 1)
+    def _run_qiskit_circuit(self, params: np.ndarray) -> str:
+        qc = QuantumCircuit(N_QUBITS)
+        idx = 0
+        for _ in range(LAYERS):
+            for q in range(N_QUBITS):
+                qc.ry(float(params[idx]), q)
+                qc.rz(float(params[idx + 1]), q)
+                idx += 2
+            # ring entanglement
+            for q in range(N_QUBITS):
+                qc.cx(q, (q + 1) % N_QUBITS)
 
         qc.measure_all()
         compiled = transpile(qc, self.sim)
-        # Increase shots and use majority vote to reduce randomness
         result = self.sim.run(compiled, shots=100).result()
         counts = result.get_counts()
         bitstring = max(counts, key=counts.get)
-        bitstring = bitstring.zfill(5)[-5:]
-        return bitstring[::-1]  # reverse bit order for map
+        bitstring = bitstring.zfill(N_QUBITS)[-N_QUBITS:]
+        return bitstring[::-1]  # reverse bit order
+
+    @staticmethod
+    def _bitstring_to_smiles(bitstring: str) -> str | None:
+        atoms = ["N" if b == "1" else "C" for b in bitstring]
+        if len(atoms) != N_QUBITS:
+            return None
+        mol = Chem.RWMol()
+        atom_idx = [mol.AddAtom(Chem.Atom(sym)) for sym in atoms]
+        # ring
+        for i in range(N_QUBITS):
+            mol.AddBond(atom_idx[i], atom_idx[(i + 1) % N_QUBITS], Chem.BondType.SINGLE)
+        try:
+            Chem.SanitizeMol(mol)
+            return Chem.MolToSmiles(mol, canonical=True)
+        except Exception:
+            return None
 
     @staticmethod
     def _is_valid_smiles(smiles: str) -> bool:
