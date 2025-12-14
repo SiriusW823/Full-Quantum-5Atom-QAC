@@ -1,6 +1,6 @@
 import math
 
-from env.mol_env_5atom import ATOM_VOCAB, BOND_VOCAB, FiveAtomMolEnv
+from env import ATOM_VOCAB, BOND_VOCAB, FiveAtomMolEnv
 
 
 def test_env_valid_known_action():

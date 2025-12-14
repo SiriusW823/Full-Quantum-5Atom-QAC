@@ -8,7 +8,7 @@ import numpy as np
 from qiskit import transpile
 from qiskit_aer.primitives import Sampler
 
-from env.mol_env_5atom import ATOM_VOCAB, BOND_VOCAB, FiveAtomMolEnv
+from env import ATOM_VOCAB, BOND_VOCAB, FiveAtomMolEnv
 from qmg.circuit import build_pqc, encode_inputs
 
 
