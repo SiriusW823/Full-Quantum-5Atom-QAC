@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from qiskit.circuit.library import RealAmplitudes
+from qiskit.circuit.library import ZFeatureMap
 from qiskit_machine_learning.neural_networks import EstimatorQNN
 from qiskit_machine_learning.connectors import TorchConnector
 
@@ -18,13 +19,14 @@ class QuantumPolicy(nn.Module):
     def __init__(self, lr: float = 1e-3):
         super().__init__()
         num_qubits = 4
-        feature_map = RealAmplitudes(num_qubits=num_qubits, reps=2, entanglement="full")
-        self.num_inputs = len(feature_map.parameters)
+        feature_map = ZFeatureMap(feature_dimension=1)  # input dim = 1
+        ansatz = RealAmplitudes(num_qubits=num_qubits, reps=2, entanglement="full")
+        qc = feature_map.compose(ansatz, front=True)
+        self.num_inputs = 1
         qnn = EstimatorQNN(
-            circuit=feature_map,
+            circuit=qc,
             input_params=feature_map.parameters,
-            weight_params=[],
-            observables=[nn.Identity()],  # dummy, outputs scalar
+            weight_params=ansatz.parameters,
         )
         self.q_layer = TorchConnector(qnn)
         self.head = nn.Linear(1, 11)
