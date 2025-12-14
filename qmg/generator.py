@@ -57,7 +57,7 @@ class QiskitQMGGenerator:
         for i, w in enumerate(self.weights):
             bind_dict[self.weight_params[i]] = w
 
-        bound = self._compiled.bind_parameters(bind_dict)
+        bound = self._compiled.assign_parameters(bind_dict, inplace=False)
         quasi = self.sampler.run(bound).result().quasi_dists[0]
 
         probs = np.zeros(num_categories, dtype=float)
