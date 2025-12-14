@@ -12,14 +12,15 @@ def build_pqc(n_qubits: int = 4, n_layers: int = 2) -> Tuple[QuantumCircuit, Par
     Build a modest PQC with data re-uploading and ring entanglement.
 
     Returns:
-        circuit: parameterized QuantumCircuit without measurements
+        circuit: parameterized QuantumCircuit with measurements
         data_params: ParameterVector for classical inputs (len = n_qubits)
         weight_params: ParameterVector for trainable weights (len = n_layers * n_qubits * 2)
     """
     data_params = ParameterVector("x", n_qubits)
     weight_params = ParameterVector("w", n_layers * n_qubits * 2)
 
-    qc = QuantumCircuit(n_qubits)
+    # include classical bits so Sampler can read measurement outcomes
+    qc = QuantumCircuit(n_qubits, n_qubits)
 
     # Initial data encoding
     for i in range(n_qubits):
@@ -35,6 +36,9 @@ def build_pqc(n_qubits: int = 4, n_layers: int = 2) -> Tuple[QuantumCircuit, Par
             w_idx += 2
         for q in range(n_qubits):
             qc.cx(q, (q + 1) % n_qubits)
+
+    # Measure all qubits; Sampler requires classical bits + measurements
+    qc.measure(range(n_qubits), range(n_qubits))
 
     return qc, data_params, weight_params
 
