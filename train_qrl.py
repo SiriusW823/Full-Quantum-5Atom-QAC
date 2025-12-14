@@ -25,15 +25,12 @@ def main():
 
     for ep in range(episodes):
         obs, _ = env.reset()
-        params = agent.sample_action()
-        params_np = params.detach().numpy().squeeze()
+        actor_out, value_out = agent.sample_action()
+        params_np = actor_out.detach().numpy().squeeze()
 
         obs, reward, terminated, truncated, info = env.step(params_np)
 
-        # simple log-prob surrogate: treat params as deterministic; approximate with L2 norm
-        # (not true REINFORCE but provides a gradient signal)
-        log_prob = -torch.norm(params)
-        agent.update(log_prob, reward)
+        agent.update(actor_out, value_out, reward)
 
         rewards.append(reward)
         if (ep + 1) % 100 == 0:
