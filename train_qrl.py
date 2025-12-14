@@ -20,12 +20,15 @@ def main():
     env = MoleculeGenEnv()
     agent = QuantumPolicy(lr=1e-3)
 
-    episodes = 2000
+    TOTAL_EPISODES = 2000
+    INITIAL_STD = 0.5
+    FINAL_STD = 0.01
     rewards = []
 
-    for ep in range(episodes):
+    for ep in range(TOTAL_EPISODES):
+        exploration_std = INITIAL_STD - (INITIAL_STD - FINAL_STD) * (ep / TOTAL_EPISODES)
         obs, _ = env.reset()
-        params_t, value_out = agent.sample_action()
+        params_t, value_out = agent.sample_action(exploration_std=exploration_std)
         params_np = params_t.detach().numpy().squeeze()
 
         obs, reward, terminated, truncated, info = env.step(params_np)
@@ -34,7 +37,7 @@ def main():
 
         rewards.append(reward)
         if (ep + 1) % 100 == 0:
-            print(f"[ep {ep+1}] reward={reward:.3f} smiles={info.get('smiles')} unique={info.get('unique')}")
+            print(f"[ep {ep+1}] reward={reward:.3f} smiles={info.get('smiles')} unique={info.get('unique')} noise_std={exploration_std:.4f}")
 
     ma = moving_average(rewards, window=50)
     plt.figure(figsize=(9, 4.5))

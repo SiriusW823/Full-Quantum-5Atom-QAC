@@ -43,14 +43,13 @@ class QuantumPolicy(nn.Module):
         value_out = self.value_head(q_out)  # scalar baseline
         return actor_out, value_out
 
-    def sample_action(self) -> torch.Tensor:
+    def sample_action(self, exploration_std: float = 0.5) -> torch.Tensor:
         dummy = torch.zeros((1, self.num_inputs), dtype=torch.float32)
         with torch.set_grad_enabled(True):
             actor_out, value_out = self.forward(dummy)
         params = actor_out
         if self.training:
-            EXPLORATION_NOISE_STD = 0.5
-            noise = torch.randn_like(params) * EXPLORATION_NOISE_STD
+            noise = torch.randn_like(params) * exploration_std
             params = params + noise
         return params, value_out
 
