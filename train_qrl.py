@@ -25,12 +25,12 @@ def main():
 
     for ep in range(episodes):
         obs, _ = env.reset()
-        actor_out, value_out = agent.sample_action()
-        params_np = actor_out.detach().numpy().squeeze()
+        params_t, value_out = agent.sample_action()
+        params_np = params_t.detach().numpy().squeeze()
 
         obs, reward, terminated, truncated, info = env.step(params_np)
 
-        agent.update(actor_out, value_out, reward)
+        agent.update(params_t, value_out, reward)
 
         rewards.append(reward)
         if (ep + 1) % 100 == 0:

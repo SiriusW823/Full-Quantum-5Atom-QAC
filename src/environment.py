@@ -88,7 +88,14 @@ class MoleculeGenEnv(gym.Env):
                 unique = 1.0
                 self.seen.add(smiles)
 
-        reward = 10.0 * (valid * unique)
+        # Reward shaping: small bonus for validity, big bonus for uniqueness, small penalty for invalid
+        BASE_VALIDITY_REWARD = 0.01
+        if valid >= 1.0:
+            reward = BASE_VALIDITY_REWARD
+            if unique >= 1.0:
+                reward += 10.0 * unique
+        else:
+            reward = -0.1
         info = {"bitstring": bitstring, "smiles": smiles, "valid": valid, "unique": unique, "structure": STRUCTURE_NAMES[structure_idx]}
         obs = np.zeros(self.observation_space.shape, dtype=np.float32)
         return obs, float(reward), True, False, info
