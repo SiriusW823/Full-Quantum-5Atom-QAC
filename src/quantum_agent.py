@@ -19,6 +19,7 @@ class QuantumPolicy(nn.Module):
         super().__init__()
         num_qubits = 4
         feature_map = RealAmplitudes(num_qubits=num_qubits, reps=2, entanglement="full")
+        self.num_inputs = len(feature_map.parameters)
         qnn = EstimatorQNN(
             circuit=feature_map,
             input_params=feature_map.parameters,
@@ -31,12 +32,14 @@ class QuantumPolicy(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x is dummy input, shape (batch, 1); q_layer returns (batch, 1)
+        if x.ndim == 1:
+            x = x.view(1, -1)
         q_out = self.q_layer(x)
         out = self.head(q_out)
         return torch.tanh(out) * torch.pi  # map to [-pi, pi]
 
     def sample_action(self) -> torch.Tensor:
-        dummy = torch.zeros((1, 1), dtype=torch.float32)
+        dummy = torch.zeros((1, self.num_inputs), dtype=torch.float32)
         with torch.set_grad_enabled(True):
             params = self.forward(dummy)
         return params
