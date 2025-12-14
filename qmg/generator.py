@@ -18,6 +18,7 @@ class SampledBatch:
     bonds: np.ndarray  # shape (batch, 4)
     smiles: List[Optional[str]]
     valids: List[bool]
+    uniques: List[bool]
 
 
 class QiskitQMGGenerator:
@@ -57,7 +58,7 @@ class QiskitQMGGenerator:
         for i, w in enumerate(self.weights):
             bind_dict[self.weight_params[i]] = w
 
-        bound = self._compiled.assign_parameters(bind_dict, inplace=False)
+        bound = self._compiled.assign_parameters(bind_dict)
         quasi = self.sampler.run(bound).result().quasi_dists[0]
 
         probs = np.zeros(num_categories, dtype=float)
@@ -95,14 +96,32 @@ class QiskitQMGGenerator:
         bonds_batch = np.zeros((batch_size, 4), dtype=int)
         smiles: List[Optional[str]] = []
         valids: List[bool] = []
+        uniques: List[bool] = []
         for i in range(batch_size):
             atoms, bonds, _ = self.sample_one()
             atoms_batch[i] = atoms
             bonds_batch[i] = bonds
+            before_seen = len(self.env.seen_smiles)
             s, v = self.env.build_smiles_from_actions(atoms.tolist(), bonds.tolist())
+            after_seen = len(self.env.seen_smiles)
             smiles.append(s)
             valids.append(v)
-        return SampledBatch(atoms=atoms_batch, bonds=bonds_batch, smiles=smiles, valids=valids)
+            uniques.append(bool(v and after_seen > before_seen))
+        return SampledBatch(
+            atoms=atoms_batch, bonds=bonds_batch, smiles=smiles, valids=valids, uniques=uniques
+        )
 
     def to_smiles(self, atoms: Sequence[int], bonds: Sequence[int]) -> Tuple[Optional[str], bool]:
         return self.env.build_smiles_from_actions(list(atoms), list(bonds))
+
+    # training helpers
+    def get_weights(self) -> np.ndarray:
+        return np.array(self.weights, copy=True)
+
+    def set_weights(self, new_w: np.ndarray) -> None:
+        assert new_w.shape == self.weights.shape
+        self.weights = np.array(new_w, copy=True)
+
+    @property
+    def num_weights(self) -> int:
+        return len(self.weights)

@@ -9,6 +9,7 @@ def test_qmg_sampling_smoke():
 
     assert batch.atoms.shape == (10, 5)
     assert batch.bonds.shape == (10, 4)
+    assert len(batch.uniques) == 10
 
     # Ensure env path executes without raising and metrics track
     assert gen.env.metrics.samples == 10
