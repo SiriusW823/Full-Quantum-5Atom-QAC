@@ -2,6 +2,7 @@ from typing import Tuple
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from qiskit import QuantumCircuit
 from qiskit.circuit.library import RealAmplitudes
 from qiskit.circuit.library import ZFeatureMap
 from qiskit_machine_learning.neural_networks import EstimatorQNN
@@ -21,7 +22,9 @@ class QuantumPolicy(nn.Module):
         num_qubits = 4
         feature_map = ZFeatureMap(feature_dimension=1)  # input dim = 1
         ansatz = RealAmplitudes(num_qubits=num_qubits, reps=2, entanglement="full")
-        qc = feature_map.compose(ansatz, front=True)
+        qc = QuantumCircuit(num_qubits)
+        qc.append(feature_map, [0])  # apply 1-qubit feature map to qubit 0
+        qc.append(ansatz, range(num_qubits))  # apply ansatz over all qubits
         self.num_inputs = 1
         qnn = EstimatorQNN(
             circuit=qc,
