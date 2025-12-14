@@ -9,7 +9,7 @@ from rdkit.Chem import rdchem
 RDLogger.DisableLog("rdApp.*")
 
 # Vocabularies (exported)
-ATOM_VOCAB: List[str] = ["C", "N", "O", "S", "F"]
+ATOM_VOCAB: List[str] = ["C", "N", "O"]  # restricted heavy atom set
 BOND_VOCAB: List[str] = ["NONE", "SINGLE", "DOUBLE", "TRIPLE"]
 
 _BOND_TYPE_MAP = {
@@ -83,7 +83,6 @@ class FiveAtomMolEnv:
         if len(atoms) != 5 or len(bonds) != 4:
             return None, False
 
-        # Map vocab
         try:
             atom_syms = [ATOM_VOCAB[a] for a in atoms]
             bond_types = [_BOND_TYPE_MAP[BOND_VOCAB[b]] for b in bonds]
@@ -99,7 +98,7 @@ class FiveAtomMolEnv:
 
             for i, bt in enumerate(bond_types):
                 if bt is None:
-                    continue  # "NONE" => no bond
+                    continue
                 mol.AddBond(atom_indices[i], atom_indices[i + 1], bt)
 
             Chem.SanitizeMol(mol)

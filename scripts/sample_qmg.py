@@ -1,9 +1,8 @@
 """
-Quick sampling script for the Qiskit QMG generator.
+Quick sampling script for the Qiskit QMG generators (factorized or SQMG).
 
 Usage:
-    python scripts/sample_qmg.py --samples 1000
-    python scripts/sample_qmg.py --n 1000
+    python -m scripts.sample_qmg --n 1000 --mode sqmg
 """
 
 from __future__ import annotations
@@ -18,17 +17,34 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from qmg.generator import QiskitQMGGenerator  # noqa: E402
+from qmg.sqmg_generator import SQMGQiskitGenerator  # noqa: E402
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--samples", type=int, default=1000, help="number of molecules to sample")
     parser.add_argument("--n", type=int, default=None, help="alias of --samples")
+    parser.add_argument(
+        "--mode",
+        choices=["sqmg", "factorized"],
+        default="sqmg",
+        help="which generator to use",
+    )
+    parser.add_argument("--shots", type=int, default=256, help="shots for sampler (sqmg)")
+    parser.add_argument("--atom-layers", type=int, default=2, help="atom layers (sqmg)")
+    parser.add_argument("--bond-layers", type=int, default=2, help="bond layers (sqmg)")
     args = parser.parse_args()
 
     n = args.samples if args.n is None else args.n
 
-    gen = QiskitQMGGenerator()
+    if args.mode == "sqmg":
+        gen = SQMGQiskitGenerator(
+            n_layers_atom=args.atom_layers,
+            n_layers_bond=args.bond_layers,
+            shots=args.shots,
+        )
+    else:
+        gen = QiskitQMGGenerator()
     gen.sample_actions(batch_size=n)
 
     env = gen.env
