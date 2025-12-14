@@ -119,9 +119,10 @@ class MoleculeGenEnv(gym.Env):
 
         qc.measure_all()
         compiled = transpile(qc, self.sim)
-        result = self.sim.run(compiled, shots=1).result()
+        # Increase shots and use majority vote to reduce randomness
+        result = self.sim.run(compiled, shots=100).result()
         counts = result.get_counts()
-        bitstring = list(counts.keys())[0]
+        bitstring = max(counts, key=counts.get)
         bitstring = bitstring.zfill(5)[-5:]
         return bitstring[::-1]  # reverse bit order for map
 
