@@ -50,11 +50,18 @@ class FiveAtomMolEnv:
 
     def __init__(self, enforce_single_fragment: bool = True) -> None:
         self.metrics = Metrics()
+        # mirror counters for compatibility
+        self.samples = 0
+        self.valid_count = 0
+        self.unique_valid_count = 0
         self.enforce_single_fragment = enforce_single_fragment
         self.seen_smiles: Set[str] = set()
 
     def reset(self) -> None:
         self.metrics = Metrics()
+        self.samples = 0
+        self.valid_count = 0
+        self.unique_valid_count = 0
         self.seen_smiles.clear()
 
     def is_unique(self, smiles: str) -> bool:
@@ -71,6 +78,7 @@ class FiveAtomMolEnv:
         Returns (smiles|None, valid_flag).
         """
         self.metrics.samples += 1
+        self.samples = self.metrics.samples
 
         if len(atoms) != 5 or len(bonds) != 4:
             return None, False
@@ -101,12 +109,40 @@ class FiveAtomMolEnv:
                 return None, False
 
             self.metrics.valid_count += 1
+            self.valid_count = self.metrics.valid_count
             if self.is_unique(smiles):
                 self.metrics.unique_valid_count += 1
+                self.unique_valid_count = self.metrics.unique_valid_count
 
             return smiles, True
         except Exception:
             return None, False
+
+    @property
+    def valid_ratio(self) -> float:
+        s = int(getattr(self, "samples", 0) or 0)
+        v = int(getattr(self, "valid_count", 0) or 0)
+        return (v / s) if s > 0 else 0.0
+
+    @property
+    def unique_ratio(self) -> float:
+        s = int(getattr(self, "samples", 0) or 0)
+        u = int(getattr(self, "unique_valid_count", 0) or 0)
+        return (u / s) if s > 0 else 0.0
+
+    @property
+    def target_metric(self) -> float:
+        return self.valid_ratio * self.unique_ratio
+
+    def stats(self) -> dict:
+        return {
+            "samples": int(getattr(self, "samples", 0) or 0),
+            "valid_count": int(getattr(self, "valid_count", 0) or 0),
+            "unique_valid_count": int(getattr(self, "unique_valid_count", 0) or 0),
+            "valid_ratio": self.valid_ratio,
+            "unique_ratio": self.unique_ratio,
+            "target_metric": self.target_metric,
+        }
 
 
 __all__ = ["ATOM_VOCAB", "BOND_VOCAB", "FiveAtomMolEnv", "Metrics"]
