@@ -24,6 +24,11 @@ _ATOM_CODE_TO_ID = {
     3: 3,  # N
 }
 
+_ATOM_NONE_ID = 0  # ATOM_VOCAB = ["NONE", "C", "O", "N"]
+_BOND_NONE_ID = 0  # BOND_VOCAB = ["NONE", "SINGLE", "DOUBLE", "TRIPLE"]
+_BOND_SINGLE_ID = 1
+
+
 
 class SQMGQiskitGenerator:
     """PDF-style SQMG generator using AerSimulator (dynamic bonds, bond reuse)."""
@@ -98,6 +103,19 @@ class SQMGQiskitGenerator:
             bits = reg_bits.get(f"cb{j}", "00")
             code = int(bits, 2)
             bond_ids.append(int(code % len(BOND_VOCAB)))
+
+
+        # Bond mask rule: within the active prefix (contiguous non-NONE atoms),
+        # enforce a connected chain by replacing NONE bonds with SINGLE.
+        active_len = 0
+        for atom_id in atom_ids:
+            if atom_id == _ATOM_NONE_ID:
+                break
+            active_len += 1
+
+        for j in range(max(0, active_len - 1)):
+            if bond_ids[j] == _BOND_NONE_ID:
+                bond_ids[j] = _BOND_SINGLE_ID
 
         return atom_ids, bond_ids
 
