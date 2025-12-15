@@ -18,24 +18,21 @@ def test_env_valid_known_action():
     assert math.isclose(env.target_metric, 1.0, rel_tol=1e-6)
 
 
-def test_env_rejects_fragment():
+def test_env_rejects_invalid_prefix_rules():
     env = FiveAtomMolEnv()
-    atoms = [ATOM_VOCAB.index("C")] * 5
-    bonds = [BOND_VOCAB.index("SINGLE")] * 3  # too few bonds
 
+    # all NONE -> active atoms < 2 -> invalid
+    atoms = [ATOM_VOCAB.index("NONE")] * 5
+    bonds = [BOND_VOCAB.index("SINGLE")] * 4
     smiles, valid = env.build_smiles_from_actions(atoms, bonds)
-
     assert valid is False
     assert smiles is None
-    assert env.metrics.valid_count == 0
-    assert env.metrics.unique_valid_count == 0
 
-    atoms_bad = [len(ATOM_VOCAB)] * 5  # out of vocab
-    bonds_ok = [BOND_VOCAB.index("SINGLE")] * 4
-    smiles, valid = env.build_smiles_from_actions(atoms_bad, bonds_ok)
+    # NONE in middle then non-NONE again -> invalid
+    atoms = [ATOM_VOCAB.index("C"), ATOM_VOCAB.index("NONE"), ATOM_VOCAB.index("O"), ATOM_VOCAB.index("NONE"), ATOM_VOCAB.index("NONE")]
+    smiles, valid = env.build_smiles_from_actions(atoms, bonds)
     assert valid is False
     assert smiles is None
-    assert env.metrics.valid_count == 0
 
 
 def test_env_uniqueness_updates_only_when_valid():
@@ -51,8 +48,9 @@ def test_env_uniqueness_updates_only_when_valid():
     smiles2, valid2 = env.build_smiles_from_actions(atoms, bonds)
     assert valid2 and smiles2
     assert env.metrics.valid_count == 2
-    assert env.metrics.unique_valid_count == 1  # duplicate should not increase unique
+    assert env.metrics.unique_valid_count == 1
 
+    # invalid action shouldn't change unique count
     atoms_bad = [len(ATOM_VOCAB)] * 5
     env.build_smiles_from_actions(atoms_bad, bonds)
     assert env.metrics.unique_valid_count == 1
