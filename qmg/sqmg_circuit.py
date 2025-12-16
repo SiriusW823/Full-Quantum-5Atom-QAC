@@ -5,61 +5,77 @@ from typing import List, Tuple
 from qiskit import ClassicalRegister, QuantumCircuit, QuantumRegister
 from qiskit.circuit import Parameter
 
+# PDF-aligned constants for N=5
 N_ATOMS = 5
 ATOM_Q = 3
 BOND_Q = 2
 
+# Full-graph edges (unordered pairs), deterministic order.
+EDGE_LIST: List[Tuple[int, int]] = [
+    (0, 1),
+    (0, 2),
+    (0, 3),
+    (0, 4),
+    (1, 2),
+    (1, 3),
+    (1, 4),
+    (2, 3),
+    (2, 4),
+    (3, 4),
+]
 
-def build_sqmg_chain_circuit(
-    n_atoms: int = 5,
+
+def build_sqmg_hybrid_fullgraph_circuit(
+    n_atoms: int = N_ATOMS,
     atom_layers: int = 2,
     bond_layers: int = 1,
-    seed: int | None = None,
 ) -> Tuple[QuantumCircuit, List[Parameter]]:
-    """Build PDF-style SQMG/QCNC circuit (static atoms + dynamic bonds).
+    """Build a PDF-like SQMG/QCNC hybrid circuit for N=5 with full-graph bonds.
 
-    Design (N=5):
-    - Qubits: 3N + 2 = 17 (15 atom qubits + 2 bond qubits)
-    - Classical bits: 3N + 2(N-1) = 23 (15 atom bits + 8 bond bits)
+    Key properties (Version 2):
+    - Total qubits: 3N + 2 = 17 (15 atom qubits + 2 reused bond qubits)
+    - No mid-circuit classical conditionals (no if_test/c_if). Conditional bond behavior is
+      implemented in decoding: if either endpoint atom is NONE -> force bond to NONE.
+    - Full-graph bonds: generate 10 bonds for all unordered pairs (i<j), aligned with EDGE_LIST.
+    - Classical bits:
+        atoms: 5 registers x 3 bits = 15 bits
+        bonds: 10 registers x 2 bits = 20 bits
+        total = 35 bits
 
-    Atom decode (3-bit):
+    Atom decode mapping (3-bit code):
       000 -> NONE
       001 -> C
       010 -> O
       011 -> N
       100..111 -> NONE
 
-    Bond decode (2-bit):
+    Bond decode mapping (2-bit code):
       00 -> NONE
       01 -> SINGLE
       10 -> DOUBLE
       11 -> TRIPLE
-
-    Bond module is applied only when both endpoint atom codes != 000 (non-NONE).
-    Bond qubits are reset between bonds.
     """
-    assert n_atoms == N_ATOMS, "This project is fixed to N=5"
-    n_bonds = n_atoms - 1
+    assert n_atoms == N_ATOMS, "This project is fixed to N=5 sites"
 
-    # 5 atom quantum registers (3 qubits each)
+    # Atom quantum registers (3 qubits each, no reuse)
     q_atoms = [QuantumRegister(ATOM_Q, f"qa{i}") for i in range(n_atoms)]
-    # 1 bond quantum register (2 qubits), reused
+    # Reused bond quantum register (2 qubits)
     q_bond = QuantumRegister(BOND_Q, "qb")
 
-    # 5 atom classical registers (3 bits each)
+    # Atom classical registers (3 bits each)
     c_atoms = [ClassicalRegister(ATOM_Q, f"ca{i}") for i in range(n_atoms)]
-    # 4 bond classical registers (2 bits each)
-    c_bonds = [ClassicalRegister(BOND_Q, f"cb{i}") for i in range(n_bonds)]
+    # Bond classical registers (2 bits each) for all edges
+    c_bonds = [ClassicalRegister(BOND_Q, f"cb{k}") for k in range(len(EDGE_LIST))]
 
     qc = QuantumCircuit(*q_atoms, q_bond, *c_atoms, *c_bonds)
 
-    # parameters: per-atom (no reuse) + shared bond params (reuse)
+    # Trainable parameters: per-atom (no reuse) + shared bond params (reuse across all edges)
     atom_params: List[Parameter] = []
-    for i in range(n_atoms):
+    for atom_idx in range(n_atoms):
         for layer in range(atom_layers):
             for q in range(ATOM_Q):
-                atom_params.append(Parameter(f"a_{i}_{layer}_{q}_ry"))
-                atom_params.append(Parameter(f"a_{i}_{layer}_{q}_rz"))
+                atom_params.append(Parameter(f"a_{atom_idx}_{layer}_{q}_ry"))
+                atom_params.append(Parameter(f"a_{atom_idx}_{layer}_{q}_rz"))
 
     bond_params: List[Parameter] = []
     for layer in range(bond_layers):
@@ -69,10 +85,10 @@ def build_sqmg_chain_circuit(
 
     params = atom_params + bond_params
 
-    # Atom blocks
+    # Atom blocks (independent)
     p_idx = 0
-    for i in range(n_atoms):
-        qs = q_atoms[i]
+    for atom_idx in range(n_atoms):
+        qs = q_atoms[atom_idx]
         for _ in range(atom_layers):
             for q in range(ATOM_Q):
                 qc.ry(atom_params[p_idx], qs[q])
@@ -80,31 +96,29 @@ def build_sqmg_chain_circuit(
                 p_idx += 2
             qc.cx(qs[0], qs[1])
             qc.cx(qs[1], qs[2])
-        qc.measure(qs, c_atoms[i])
+        qc.measure(qs, c_atoms[atom_idx])
 
-    # Bond blocks (dynamic + reuse)
-    for b in range(n_bonds):
+    # Bond blocks (reuse qb across all full-graph edges)
+    for edge_idx in range(len(EDGE_LIST)):
         qc.reset(q_bond)
-
-        with qc.if_test((c_atoms[b], 0)) as else_left:
-            pass
-        with else_left:
-            with qc.if_test((c_atoms[b + 1], 0)) as else_right:
-                pass
-            with else_right:
-                # apply shared bond ansatz
-                bp_idx = 0
-                for _ in range(bond_layers):
-                    for q in range(BOND_Q):
-                        qc.ry(bond_params[bp_idx], q_bond[q])
-                        qc.rz(bond_params[bp_idx + 1], q_bond[q])
-                        bp_idx += 2
-                    qc.cx(q_bond[0], q_bond[1])
-
-        qc.measure(q_bond, c_bonds[b])
+        bp_idx = 0
+        for _ in range(bond_layers):
+            for q in range(BOND_Q):
+                qc.ry(bond_params[bp_idx], q_bond[q])
+                qc.rz(bond_params[bp_idx + 1], q_bond[q])
+                bp_idx += 2
+            qc.cx(q_bond[0], q_bond[1])
+        qc.measure(q_bond, c_bonds[edge_idx])
         qc.reset(q_bond)
 
     return qc, params
 
 
-__all__ = ["build_sqmg_chain_circuit", "N_ATOMS", "ATOM_Q", "BOND_Q"]
+__all__ = [
+    "ATOM_Q",
+    "BOND_Q",
+    "EDGE_LIST",
+    "N_ATOMS",
+    "build_sqmg_hybrid_fullgraph_circuit",
+]
+

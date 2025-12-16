@@ -57,7 +57,9 @@ def smiles_to_features(smiles: str, dim: int = 12) -> np.ndarray:
     feats[7] = bond_counts["TRIPLE"]
 
     # Ring / aromatic
-    feats[8] = float(Chem.GetSSSR(mol))
+    # NOTE: In RDKit 2022.09.x, Chem.GetSSSR/GetSymmSSSR return ring atom index vectors,
+    # not a numeric count. Use RingInfo.NumRings() for a stable scalar feature.
+    feats[8] = float(mol.GetRingInfo().NumRings())
     feats[9] = float(sum(1 for a in mol.GetAtoms() if a.GetIsAromatic()))
 
     # Normalize to [0,1] with clipping; rough scale by max 10

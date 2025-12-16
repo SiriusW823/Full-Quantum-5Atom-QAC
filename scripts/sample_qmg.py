@@ -26,7 +26,6 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--n", type=int, default=1000)
     parser.add_argument("--mode", choices=["sqmg", "factorized"], default="sqmg")
-    parser.add_argument("--shots", type=int, default=256, help="shots for SQMG only")
     parser.add_argument("--atom-layers", type=int, default=2)
     parser.add_argument("--bond-layers", type=int, default=1)
     args = parser.parse_args()
@@ -35,7 +34,6 @@ def main() -> None:
         gen = SQMGQiskitGenerator(
             atom_layers=args.atom_layers,
             bond_layers=args.bond_layers,
-            shots=args.shots,
         )
     else:
         gen = QiskitQMGGenerator()
@@ -47,7 +45,8 @@ def main() -> None:
     if qc is not None:
         print(f"circuit: n_qubits={qc.num_qubits} n_clbits={qc.num_clbits}")
     if args.mode == "sqmg":
-        print(f"shots={args.shots} atom_layers={args.atom_layers} bond_layers={args.bond_layers}")
+        # SQMG uses Aer memory with 1 shot == 1 sampled molecule in this script.
+        print(f"shots={args.n} atom_layers={args.atom_layers} bond_layers={args.bond_layers}")
 
     s = env.stats() if hasattr(env, "stats") else {}
     if s:

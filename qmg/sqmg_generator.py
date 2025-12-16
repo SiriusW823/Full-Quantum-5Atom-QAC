@@ -8,15 +8,14 @@ from qiskit_aer import AerSimulator
 
 from env import ATOM_VOCAB, BOND_VOCAB, FiveAtomMolEnv
 from qmg.generator import SampledBatch
-from qmg.sqmg_circuit import N_ATOMS, build_sqmg_chain_circuit
+from qmg.sqmg_circuit import EDGE_LIST, N_ATOMS, build_sqmg_hybrid_fullgraph_circuit
 
-
-# Atom 3-bit code mapping (as requested):
-# 000 -> NONE
-# 001 -> C
-# 010 -> O
-# 011 -> N
-# 100..111 -> NONE
+# Atom 3-bit code mapping:
+#   000 -> NONE
+#   001 -> C
+#   010 -> O
+#   011 -> N
+#   100..111 -> NONE
 _ATOM_CODE_TO_ID = {
     0: 0,  # NONE
     1: 1,  # C
@@ -26,32 +25,34 @@ _ATOM_CODE_TO_ID = {
 
 _ATOM_NONE_ID = 0  # ATOM_VOCAB = ["NONE", "C", "O", "N"]
 _BOND_NONE_ID = 0  # BOND_VOCAB = ["NONE", "SINGLE", "DOUBLE", "TRIPLE"]
-_BOND_SINGLE_ID = 1
-
 
 
 class SQMGQiskitGenerator:
-    """PDF-style SQMG generator using AerSimulator (dynamic bonds, bond reuse)."""
+    """PDF-like SQMG/QCNC generator (3N+2 qubits) using AerSimulator.
+
+    Version 2 behavior:
+    - Full-graph bonds (10 edges for N=5) aligned with EDGE_LIST
+    - No in-circuit conditionals (avoids Aer issues with multiple classical registers)
+    - Conditional "bond only if both atoms exist" is implemented in decoding:
+      if endpoint atom decodes to NONE -> force that bond to NONE.
+    """
 
     def __init__(
         self,
         atom_layers: int = 2,
         bond_layers: int = 1,
-        shots: int = 256,
         seed: int | None = None,
     ) -> None:
-        self.atom_layers = atom_layers
-        self.bond_layers = bond_layers
-        self.shots = shots
+        self.atom_layers = int(atom_layers)
+        self.bond_layers = int(bond_layers)
         self.rng = np.random.default_rng(seed)
         self.env = FiveAtomMolEnv()
 
-        qc, params = build_sqmg_chain_circuit(
-            n_atoms=N_ATOMS, atom_layers=atom_layers, bond_layers=bond_layers
+        qc, params = build_sqmg_hybrid_fullgraph_circuit(
+            n_atoms=N_ATOMS, atom_layers=self.atom_layers, bond_layers=self.bond_layers
         )
         self.base_circuit = qc
         self.params = params
-
         self.weights = self.rng.normal(0.0, 0.2, size=len(self.params))
 
         self.backend = AerSimulator(seed_simulator=seed)
@@ -68,18 +69,22 @@ class SQMGQiskitGenerator:
         assert new_w.shape == self.weights.shape
         self.weights = np.array(new_w, copy=True)
 
-    def _bind(self):
+    def _bound_circuit(self):
         bind = {p: float(self.weights[i]) for i, p in enumerate(self.params)}
-        return self._compiled.assign_parameters(bind)
+        return self._compiled.assign_parameters(bind, inplace=False)
 
     def _parse_memory(self, mem: str) -> Dict[str, str]:
-        """Return mapping creg_name -> bitstring for that register."""
+        """Return mapping creg_name -> bitstring for that classical register.
+
+        Qiskit memory strings are space-separated by classical register, in reversed
+        circuit.cregs order (most recently added register first).
+        """
         parts = mem.split()
         cregs = list(self.base_circuit.cregs)
         if len(parts) == len(cregs):
             return {creg.name: part for creg, part in zip(reversed(cregs), parts)}
 
-        # no spaces, fallback: slice by creg sizes (reverse order)
+        # Fallback (no spaces): slice by creg sizes in reversed order
         flat = mem.replace(" ", "")
         out: Dict[str, str] = {}
         idx = 0
@@ -96,37 +101,29 @@ class SQMGQiskitGenerator:
         for i in range(N_ATOMS):
             bits = reg_bits.get(f"ca{i}", "000")
             code = int(bits, 2)
-            atom_ids.append(_ATOM_CODE_TO_ID.get(code, 0))
+            atom_ids.append(_ATOM_CODE_TO_ID.get(code, _ATOM_NONE_ID))
 
         bond_ids: List[int] = []
-        for j in range(N_ATOMS - 1):
-            bits = reg_bits.get(f"cb{j}", "00")
+        for k in range(len(EDGE_LIST)):
+            bits = reg_bits.get(f"cb{k}", "00")
             code = int(bits, 2)
             bond_ids.append(int(code % len(BOND_VOCAB)))
 
-
-        # Bond mask rule: within the active prefix (contiguous non-NONE atoms),
-        # enforce a connected chain by replacing NONE bonds with SINGLE.
-        active_len = 0
-        for atom_id in atom_ids:
-            if atom_id == _ATOM_NONE_ID:
-                break
-            active_len += 1
-
-        for j in range(max(0, active_len - 1)):
-            if bond_ids[j] == _BOND_NONE_ID:
-                bond_ids[j] = _BOND_SINGLE_ID
+        # Mask: if either endpoint is NONE, force bond to NONE (equivalent to PDF conditional)
+        for k, (i, j) in enumerate(EDGE_LIST):
+            if atom_ids[i] == _ATOM_NONE_ID or atom_ids[j] == _ATOM_NONE_ID:
+                bond_ids[k] = _BOND_NONE_ID
 
         return atom_ids, bond_ids
 
     def sample_actions(self, batch_size: int = 1) -> SampledBatch:
-        atoms_batch = np.zeros((batch_size, 5), dtype=int)
-        bonds_batch = np.zeros((batch_size, 4), dtype=int)
+        atoms_batch = np.zeros((batch_size, N_ATOMS), dtype=int)
+        bonds_batch = np.zeros((batch_size, len(EDGE_LIST)), dtype=int)
         smiles: List[Optional[str]] = []
         valids: List[bool] = []
         uniques: List[bool] = []
 
-        bound = self._bind()
+        bound = self._bound_circuit()
         job = self.backend.run(bound, shots=batch_size, memory=True)
         result = job.result()
         memory = result.get_memory(0)
@@ -144,8 +141,13 @@ class SQMGQiskitGenerator:
             uniques.append(bool(v and after > before))
 
         return SampledBatch(
-            atoms=atoms_batch, bonds=bonds_batch, smiles=smiles, valids=valids, uniques=uniques
+            atoms=atoms_batch,
+            bonds=bonds_batch,
+            smiles=smiles,
+            valids=valids,
+            uniques=uniques,
         )
 
 
 __all__ = ["SQMGQiskitGenerator"]
+

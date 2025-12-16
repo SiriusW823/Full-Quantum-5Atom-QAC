@@ -8,14 +8,14 @@ import numpy as np
 from qiskit import transpile
 from qiskit_aer.primitives import Sampler
 
-from env import ATOM_VOCAB, BOND_VOCAB, FiveAtomMolEnv
+from env import ATOM_VOCAB, BOND_VOCAB, EDGE_LIST, FiveAtomMolEnv
 from qmg.circuit import build_pqc, encode_inputs
 
 
 @dataclass
 class SampledBatch:
     atoms: np.ndarray  # shape (batch, 5)
-    bonds: np.ndarray  # shape (batch, 4)
+    bonds: np.ndarray  # shape (batch, len(EDGE_LIST))
     smiles: List[Optional[str]]
     valids: List[bool]
     uniques: List[bool]
@@ -23,7 +23,7 @@ class SampledBatch:
 
 class QiskitQMGGenerator:
     """
-    Factorized-head PQC sampler for 5-atom chains.
+    Factorized-head PQC sampler for 5 sites with full-graph bonds.
     Reuses a small PQC for each atom/bond head with different classical encodings.
     """
 
@@ -84,8 +84,8 @@ class QiskitQMGGenerator:
             a, lp = self._sample_head(head_id=i, num_categories=len(ATOM_VOCAB))
             atoms.append(a)
             logps.append(lp)
-        # Bond heads: ids 100..103 to keep separation
-        for i in range(4):
+        # Bond heads: ids 100.. to keep separation (aligned with EDGE_LIST)
+        for i in range(len(EDGE_LIST)):
             b, lp = self._sample_head(head_id=100 + i, num_categories=len(BOND_VOCAB))
             bonds.append(b)
             logps.append(lp)
@@ -93,7 +93,7 @@ class QiskitQMGGenerator:
 
     def sample_actions(self, batch_size: int = 1) -> SampledBatch:
         atoms_batch = np.zeros((batch_size, 5), dtype=int)
-        bonds_batch = np.zeros((batch_size, 4), dtype=int)
+        bonds_batch = np.zeros((batch_size, len(EDGE_LIST)), dtype=int)
         smiles: List[Optional[str]] = []
         valids: List[bool] = []
         uniques: List[bool] = []

@@ -9,9 +9,24 @@ from rdkit.Chem import rdchem
 RDLogger.DisableLog("rdApp.*")
 
 # Vocabularies (exported)
-# NOTE: Order is required by SQMG decoding/tests.
+# Atom decode (3-bit): 000->NONE, 001->C, 010->O, 011->N, 100..111->NONE
 ATOM_VOCAB: List[str] = ["NONE", "C", "O", "N"]
+# Bond decode (2-bit): 00->NONE, 01->SINGLE, 10->DOUBLE, 11->TRIPLE
 BOND_VOCAB: List[str] = ["NONE", "SINGLE", "DOUBLE", "TRIPLE"]
+
+# Full-graph edges (unordered pairs), deterministic order.
+EDGE_LIST: List[Tuple[int, int]] = [
+    (0, 1),
+    (0, 2),
+    (0, 3),
+    (0, 4),
+    (1, 2),
+    (1, 3),
+    (1, 4),
+    (2, 3),
+    (2, 4),
+    (3, 4),
+]
 
 _BOND_TYPE_MAP = {
     "NONE": None,
@@ -41,21 +56,24 @@ class Metrics:
 
 
 class FiveAtomMolEnv:
-    """
-    RDKit environment for a 5-position chain with optional NONE atoms.
+    """Classical RDKit environment for 5 sites with optional NONE atoms and full-graph bonds.
 
-    - atoms: length 5, indices into ATOM_VOCAB (includes NONE)
-    - bonds: length 4, indices into BOND_VOCAB
+    API:
+      build_smiles_from_actions(atoms, bonds) -> (smiles|None, valid)
 
-    Fragment-avoidance rule:
-    - Only a contiguous prefix of non-NONE atoms is allowed.
-      Once NONE appears, all later atoms must be NONE.
-    - active atom count must be >= 2 (otherwise invalid)
+    Inputs:
+      - atoms: length 5, indices into ATOM_VOCAB
+      - bonds: length 10, indices into BOND_VOCAB, aligned with EDGE_LIST
 
-    Molecule construction:
-    - Build only the active prefix atoms.
-    - Apply only the first (active_len-1) bond decisions.
-    - RDKit sanitization is used; fragments ('.') are rejected.
+    Validity:
+      - active_len = count(non-NONE atoms) must be >= 2
+      - add only non-NONE atoms to RDKit
+      - add only bonds where both endpoints exist and bond != NONE
+      - sanitize, canonicalize
+      - reject fragments if enforce_single_fragment=True (SMILES contains '.')
+
+    Uniqueness:
+      - counted only when valid and canonical SMILES is new
     """
 
     def __init__(self, enforce_single_fragment: bool = True) -> None:
@@ -85,40 +103,36 @@ class FiveAtomMolEnv:
         self.metrics.samples += 1
         self.samples = self.metrics.samples
 
-        if len(atoms) != 5 or len(bonds) != 4:
+        if len(atoms) != 5 or len(bonds) != len(EDGE_LIST):
             return None, False
 
         try:
-            atom_syms_full = [ATOM_VOCAB[a] for a in atoms]
+            atom_syms = [ATOM_VOCAB[a] for a in atoms]
             bond_types = [_BOND_TYPE_MAP[BOND_VOCAB[b]] for b in bonds]
         except (IndexError, KeyError):
             return None, False
 
-        active_len = 0
-        for sym in atom_syms_full:
-            if sym == "NONE":
-                break
-            active_len += 1
-
-        if active_len < 2:
+        active_sites = [i for i, sym in enumerate(atom_syms) if sym != "NONE"]
+        if len(active_sites) < 2:
             return None, False
-
-        if any(sym != "NONE" for sym in atom_syms_full[active_len:]):
-            return None, False
-
-        atom_syms = atom_syms_full[:active_len]
 
         mol = Chem.RWMol()
-        atom_indices: List[int] = []
+        site_to_rd: List[Optional[int]] = [None] * 5
 
         try:
-            for sym in atom_syms:
-                atom_indices.append(mol.AddAtom(Chem.Atom(sym)))
+            for site_idx, sym in enumerate(atom_syms):
+                if sym == "NONE":
+                    continue
+                site_to_rd[site_idx] = mol.AddAtom(Chem.Atom(sym))
 
-            for i, bt in enumerate(bond_types[: active_len - 1]):
+            for (i, j), bt in zip(EDGE_LIST, bond_types, strict=True):
                 if bt is None:
                     continue
-                mol.AddBond(atom_indices[i], atom_indices[i + 1], bt)
+                a = site_to_rd[i]
+                b = site_to_rd[j]
+                if a is None or b is None:
+                    continue
+                mol.AddBond(a, b, bt)
 
             Chem.SanitizeMol(mol)
             smiles = Chem.MolToSmiles(mol, canonical=True)
@@ -163,4 +177,4 @@ class FiveAtomMolEnv:
         }
 
 
-__all__ = ["ATOM_VOCAB", "BOND_VOCAB", "FiveAtomMolEnv", "Metrics"]
+__all__ = ["ATOM_VOCAB", "BOND_VOCAB", "EDGE_LIST", "FiveAtomMolEnv", "Metrics"]
