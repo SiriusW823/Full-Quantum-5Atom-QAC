@@ -13,17 +13,17 @@ from qmg.sqmg_circuit import EDGE_LIST, N_ATOMS, build_sqmg_hybrid_fullgraph_cir
 # Atom 3-bit code mapping:
 #   000 -> NONE
 #   001 -> C
-#   010 -> O
-#   011 -> N
+#   010 -> N
+#   011 -> O
 #   100..111 -> NONE
 _ATOM_CODE_TO_ID = {
     0: 0,  # NONE
     1: 1,  # C
-    2: 2,  # O
-    3: 3,  # N
+    2: 2,  # N
+    3: 3,  # O
 }
 
-_ATOM_NONE_ID = 0  # ATOM_VOCAB = ["NONE", "C", "O", "N"]
+_ATOM_NONE_ID = 0  # ATOM_VOCAB = ["NONE", "C", "N", "O"]
 _BOND_NONE_ID = 0  # BOND_VOCAB = ["NONE", "SINGLE", "DOUBLE", "TRIPLE"]
 
 
@@ -53,7 +53,9 @@ class SQMGQiskitGenerator:
         )
         self.base_circuit = qc
         self.params = params
-        self.weights = self.rng.normal(0.0, 0.2, size=len(self.params))
+        # Slightly larger init helps avoid the all-|0> collapse (all atoms decode to NONE,
+        # many bonds decode to NONE), which otherwise yields near-zero valid_ratio.
+        self.weights = self.rng.normal(0.0, 1.0, size=len(self.params))
 
         self.backend = AerSimulator(seed_simulator=seed)
         self._compiled = transpile(self.base_circuit, self.backend, optimization_level=1)
@@ -150,4 +152,3 @@ class SQMGQiskitGenerator:
 
 
 __all__ = ["SQMGQiskitGenerator"]
-

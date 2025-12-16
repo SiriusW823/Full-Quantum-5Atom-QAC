@@ -31,7 +31,7 @@ This repo contains a quantum sampling + training stack:
 
 - `env/mol_env_5atom.py`
   - Vocab:
-    - `ATOM_VOCAB = ["NONE", "C", "O", "N"]`
+    - `ATOM_VOCAB = ["NONE", "C", "N", "O"]`
     - `BOND_VOCAB = ["NONE", "SINGLE", "DOUBLE", "TRIPLE"]`
   - `FiveAtomMolEnv.build_smiles_from_actions(atoms, bonds)`:
     - expects `atoms` length 5 and `bonds` length 10 aligned with `EDGE_LIST`
@@ -82,4 +82,3 @@ pip install -r requirements-dev.txt
 ### Notes
 - `sqmg_generator.py` uses `AerSimulator` with `memory=True` to decode hybrid measurements; the factorized QMG and QRL helper use the Aer Sampler primitive.
 - Because `NONE` atoms and `NONE` bonds are allowed, early sampling can have low `valid_ratio`. The intended learning signal comes from reward shaping + uniqueness pressure during training.
-

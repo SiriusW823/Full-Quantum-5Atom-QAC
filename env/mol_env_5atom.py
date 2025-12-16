@@ -9,8 +9,8 @@ from rdkit.Chem import rdchem
 RDLogger.DisableLog("rdApp.*")
 
 # Vocabularies (exported)
-# Atom decode (3-bit): 000->NONE, 001->C, 010->O, 011->N, 100..111->NONE
-ATOM_VOCAB: List[str] = ["NONE", "C", "O", "N"]
+# Atom decode (3-bit): 000->NONE, 001->C, 010->N, 011->O, 100..111->NONE
+ATOM_VOCAB: List[str] = ["NONE", "C", "N", "O"]
 # Bond decode (2-bit): 00->NONE, 01->SINGLE, 10->DOUBLE, 11->TRIPLE
 BOND_VOCAB: List[str] = ["NONE", "SINGLE", "DOUBLE", "TRIPLE"]
 

@@ -45,8 +45,8 @@ def build_sqmg_hybrid_fullgraph_circuit(
     Atom decode mapping (3-bit code):
       000 -> NONE
       001 -> C
-      010 -> O
-      011 -> N
+      010 -> N
+      011 -> O
       100..111 -> NONE
 
     Bond decode mapping (2-bit code):
@@ -121,4 +121,3 @@ __all__ = [
     "N_ATOMS",
     "build_sqmg_hybrid_fullgraph_circuit",
 ]
-
