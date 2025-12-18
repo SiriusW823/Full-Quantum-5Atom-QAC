@@ -8,9 +8,9 @@ from qiskit_aer import AerSimulator
 
 from env import ATOM_VOCAB, BOND_VOCAB, FiveAtomMolEnv
 from qmg.generator import SampledBatch
-from qmg.sqmg_circuit import EDGE_LIST, N_ATOMS, build_sqmg_hybrid_fullgraph_circuit
+from qmg.sqmg_circuit import EDGE_LIST, N_ATOMS, build_sqmg_hybrid_chain_circuit
 
-# Atom 3-bit code mapping:
+# Atom 3-bit code mapping (fixed):
 #   000 -> NONE
 #   001 -> C
 #   010 -> N
@@ -30,11 +30,11 @@ _BOND_NONE_ID = 0  # BOND_VOCAB = ["NONE", "SINGLE", "DOUBLE", "TRIPLE"]
 class SQMGQiskitGenerator:
     """PDF-like SQMG/QCNC generator (3N+2 qubits) using AerSimulator.
 
-    Version 2 behavior:
-    - Full-graph bonds (10 edges for N=5) aligned with EDGE_LIST
-    - No in-circuit conditionals (avoids Aer issues with multiple classical registers)
-    - Conditional "bond only if both atoms exist" is implemented in decoding:
-      if endpoint atom decodes to NONE -> force that bond to NONE.
+    Version (dynamic, in-circuit masking):
+    - Chain bonds only: 4 edges for N=5, aligned with EDGE_LIST
+    - No classical feedforward (no if_test/c_if)
+    - PDF conditional bond behavior is implemented *inside the circuit* via quantum-controlled
+      masking (bond ansatz only applies when both endpoint atom codes are not 000).
     """
 
     def __init__(
@@ -48,7 +48,7 @@ class SQMGQiskitGenerator:
         self.rng = np.random.default_rng(seed)
         self.env = FiveAtomMolEnv()
 
-        qc, params = build_sqmg_hybrid_fullgraph_circuit(
+        qc, params = build_sqmg_hybrid_chain_circuit(
             n_atoms=N_ATOMS, atom_layers=self.atom_layers, bond_layers=self.bond_layers
         )
         self.base_circuit = qc
@@ -110,11 +110,6 @@ class SQMGQiskitGenerator:
             bits = reg_bits.get(f"cb{k}", "00")
             code = int(bits, 2)
             bond_ids.append(int(code % len(BOND_VOCAB)))
-
-        # Mask: if either endpoint is NONE, force bond to NONE (equivalent to PDF conditional)
-        for k, (i, j) in enumerate(EDGE_LIST):
-            if atom_ids[i] == _ATOM_NONE_ID or atom_ids[j] == _ATOM_NONE_ID:
-                bond_ids[k] = _BOND_NONE_ID
 
         return atom_ids, bond_ids
 

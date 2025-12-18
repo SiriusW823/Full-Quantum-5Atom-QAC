@@ -38,12 +38,13 @@ def main() -> None:
     else:
         gen = QiskitQMGGenerator()
 
-    gen.sample_actions(batch_size=args.n)
+    batch = gen.sample_actions(batch_size=args.n)
 
     env = gen.env
     qc = getattr(gen, "base_circuit", None)
     if qc is not None:
         print(f"circuit: n_qubits={qc.num_qubits} n_clbits={qc.num_clbits}")
+    print(f"batch: atoms_shape={batch.atoms.shape} bonds_shape={batch.bonds.shape}")
     if args.mode == "sqmg":
         # SQMG uses Aer memory with 1 shot == 1 sampled molecule in this script.
         print(f"shots={args.n} atom_layers={args.atom_layers} bond_layers={args.bond_layers}")

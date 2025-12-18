@@ -1,10 +1,10 @@
 ## Quantum 5-Site Molecule Generator + Quantum RL Helper (Qiskit)
 
 This repo contains a quantum sampling + training stack:
-- **env/**: classical RDKit environment for 5 sites with optional `NONE` atoms and **full-graph** bonds (10 edges), with validity/uniqueness tracking and `target_metric = valid_ratio * unique_ratio`.
+- **env/**: classical RDKit environment for 5 sites with optional `NONE` atoms and **chain** bonds (4 edges), with validity/uniqueness tracking and `target_metric = valid_ratio * unique_ratio`.
 - **qmg/**: Quantum Molecular Generators
   - `generator.py`: factorized-head PQC (small, uses Qiskit Sampler) for atoms + bonds.
-  - `sqmg_generator.py`: SQMG/QCNC-inspired **hybrid** QMG (PDF-aligned spirit) with **3N+2 qubits** (N=5 → 17), bond reuse (2 qubits reused), and full-graph bonds.
+  - `sqmg_generator.py`: SQMG/QCNC-inspired **hybrid** QMG (PDF-aligned spirit) with **3N+2 data qubits** (N=5 → 17), bond reuse (2 qubits reused), and an in-circuit quantum-controlled mask (uses 2 ancillas).
 - **qrl/**: Quantum RL helper — Qiskit PQC that scores SMILES in [0,1] (novelty prior / critic) and can be trained via SPSA.
 - **scripts/**: sampling and joint training entrypoints.
 
@@ -12,20 +12,21 @@ This repo contains a quantum sampling + training stack:
 
 **Hybrid circuit structure (N=5):**
 - **Atom registers:** 5 independent blocks × 3 qubits = 15 qubits.
-- **Bond register:** 2 qubits, **reused** sequentially across all edges.
-- **Total:** **17 qubits** (3N+2).
+- **Bond register:** 2 qubits, **reused** sequentially across chain edges.
+- **Ancillas:** 2 qubits, computed/uncomputed per bond for quantum-controlled masking.
+- **Total:** 17 data qubits (3N+2) + 2 ancillas = 19 qubits in the circuit.
 
-**Full-graph bonds:**
-- We generate bond codes for all unordered pairs `(i<j)` using a fixed order:
-  `EDGE_LIST = [(0,1),(0,2),(0,3),(0,4),(1,2),(1,3),(1,4),(2,3),(2,4),(3,4)]`
+**Chain bonds:**
+- We generate bond codes for the 5-site chain:
+  `EDGE_LIST = [(0,1),(1,2),(2,3),(3,4)]`
 - Generator output uses:
   - `atoms`: length 5
-  - `bonds`: length 10 aligned with `EDGE_LIST`
+  - `bonds`: length 4 aligned with `EDGE_LIST`
 
-**Why no in-circuit conditionals?**
-- Aer can fail when compiling conditional instructions with multiple classical registers.
-- This repo implements the PDF “only create a bond if both endpoint atoms exist” behavior via **decode-time masking**:
-  - If `atom_i == NONE` or `atom_j == NONE`, force the decoded bond for edge `(i,j)` to `NONE`.
+**No classical feedforward**
+- No `if_test`/`c_if` are used. The PDF conditional bond behavior is implemented **inside the circuit**
+  via quantum-controlled masking: the bond ansatz is applied only when both endpoints decode to a
+  non-`NONE` atom.
 
 ### Key modules
 
@@ -34,21 +35,20 @@ This repo contains a quantum sampling + training stack:
     - `ATOM_VOCAB = ["NONE", "C", "N", "O"]`
     - `BOND_VOCAB = ["NONE", "SINGLE", "DOUBLE", "TRIPLE"]`
   - `FiveAtomMolEnv.build_smiles_from_actions(atoms, bonds)`:
-    - expects `atoms` length 5 and `bonds` length 10 aligned with `EDGE_LIST`
-    - builds an RDKit `RWMol` using only non-`NONE` sites and only non-`NONE` bonds between existing endpoints
+    - expects `atoms` length 5 and `bonds` length 4 aligned with `EDGE_LIST`
+    - builds an RDKit `RWMol` using only non-`NONE` sites and only non-`NONE` chain bonds between existing endpoints
     - sanitizes, canonicalizes, rejects fragments (`"."` in SMILES) when `enforce_single_fragment=True`
     - tracks `samples`, `valid_count`, `unique_valid_count` and exposes `valid_ratio`, `unique_ratio`, `target_metric`, `stats()`
 - `qmg/sqmg_circuit.py`
-  - Builds the 17-qubit hybrid circuit and measures:
+  - Builds the hybrid circuit and measures:
     - atoms: 5×3 bits (15)
-    - bonds: 10×2 bits (20)
-    - total: 35 classical bits
-  - No `if_test`/`c_if` blocks are used.
+    - bonds: 4×2 bits (8)
+    - total: 23 classical bits (ancillas are not measured)
+  - Bond module is quantum-controlled by ancillas (no classical conditionals).
 - `qmg/sqmg_generator.py`
   - Runs `AerSimulator(...).run(circuit, shots=batch_size, memory=True)` and decodes per-shot into:
     - `atom_ids` (len=5) using a fixed 3-bit mapping
-    - `bond_ids` (len=10) using a fixed 2-bit mapping
-  - Applies decode-time masking for `NONE` endpoints.
+    - `bond_ids` (len=4) using a fixed 2-bit mapping
 - `scripts/sample_qmg.py`
   - Samples N molecules and prints:
     `samples, valid_count, unique_valid_count, valid_ratio, unique_ratio, target_metric`,

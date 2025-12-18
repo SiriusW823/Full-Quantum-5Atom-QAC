@@ -6,10 +6,7 @@ from env import ATOM_VOCAB, BOND_VOCAB, EDGE_LIST, FiveAtomMolEnv
 def test_env_valid_known_action():
     env = FiveAtomMolEnv()
     atoms = [ATOM_VOCAB.index("C")] * 5
-    bonds = [BOND_VOCAB.index("NONE")] * len(EDGE_LIST)
-    # build a simple connected chain 0-1-2-3-4
-    for edge in [(0, 1), (1, 2), (2, 3), (3, 4)]:
-        bonds[EDGE_LIST.index(edge)] = BOND_VOCAB.index("SINGLE")
+    bonds = [BOND_VOCAB.index("SINGLE")] * len(EDGE_LIST)
 
     smiles, valid = env.build_smiles_from_actions(atoms, bonds)
 
@@ -51,9 +48,7 @@ def test_env_rejects_fragment():
 def test_env_uniqueness_updates_only_when_valid():
     env = FiveAtomMolEnv()
     atoms = [ATOM_VOCAB.index("C")] * 5
-    bonds = [BOND_VOCAB.index("NONE")] * len(EDGE_LIST)
-    for edge in [(0, 1), (1, 2), (2, 3), (3, 4)]:
-        bonds[EDGE_LIST.index(edge)] = BOND_VOCAB.index("SINGLE")
+    bonds = [BOND_VOCAB.index("SINGLE")] * len(EDGE_LIST)
 
     smiles1, valid1 = env.build_smiles_from_actions(atoms, bonds)
     assert valid1 and smiles1
