@@ -42,5 +42,8 @@ def test_qrl_a2c_smoke():
     assert "valid_ratio" in result
     assert "unique_ratio" in result
     assert "target_metric" in result
+    assert "ds" in result and result["ds"] >= 1
+    assert "dv" in result and result["dv"] >= 0
+    assert "du" in result and result["du"] >= 0
     assert actor.get_weights().shape == (actor.num_weights,)
     assert critic.get_weights().shape == (critic.num_weights,)

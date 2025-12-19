@@ -168,6 +168,9 @@ def run_a2c(args: argparse.Namespace) -> None:
                 f"adv={result['advantage']:.6f} actor_loss={result['actor_loss']:.6f} "
                 f"critic_loss={result['critic_loss']:.6f}"
             )
+            print(
+                f"step_deltas: ds={result['ds']:.0f} dv={result['dv']:.0f} du={result['du']:.0f}"
+            )
             uniques = sorted(qmg.env.seen_smiles)[:10]
             print("Top unique SMILES (up to 10):")
             for smi in uniques:
