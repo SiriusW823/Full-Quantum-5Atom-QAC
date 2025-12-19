@@ -169,6 +169,11 @@ def run_a2c(args: argparse.Namespace) -> None:
                 f"critic_loss={result['critic_loss']:.6f}"
             )
             print(
+                f"step_ratios: vr_step={result['valid_ratio']:.4f} "
+                f"ur_step={result['unique_ratio']:.4f} "
+                f"tm_step={result['target_metric']:.6f}"
+            )
+            print(
                 f"step_deltas: ds={result['ds']:.0f} dv={result['dv']:.0f} du={result['du']:.0f}"
             )
             uniques = sorted(qmg.env.seen_smiles)[:10]
