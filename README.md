@@ -1,84 +1,157 @@
-## Quantum 5-Site Molecule Generator + Quantum RL Helper (Qiskit)
+# Full-Quantum 5-Atom QAC (SQMG + QRL Scaffold)
 
-This repo contains a quantum sampling + training stack:
-- **env/**: classical RDKit environment for 5 sites with optional `NONE` atoms and **chain** bonds (4 edges), with validity/uniqueness tracking and `target_metric = valid_ratio * unique_ratio`.
-- **qmg/**: Quantum Molecular Generators
-  - `generator.py`: factorized-head PQC (small, uses Qiskit Sampler) for atoms + bonds.
-  - `sqmg_generator.py`: SQMG/QCNC-inspired **hybrid** QMG (PDF-aligned spirit) with **3N+2 data qubits** (N=5 → 17), bond reuse (2 qubits reused), and an in-circuit quantum-controlled mask (uses 2 ancillas).
-- **qrl/**: Quantum RL helper — Qiskit PQC that scores SMILES in [0,1] (novelty prior / critic) and can be trained via SPSA.
-- **scripts/**: sampling and joint training entrypoints.
+This repository implements a **quantum molecular generation** pipeline (QMG) and a **quantum-assisted learning scaffold** (QRL scaffold) built on **Qiskit** and **RDKit**.
 
-### Version 2 SQMG (PDF-aligned)
+The current emphasis is the **SQMG mode**: a **hybrid, PDF-inspired** design using **dynamic circuits** (mid-circuit measurement + reset) and **bond-qubit reuse** to sample molecules under a fixed **5-site** topology. The primary optimization objective throughout the project is:
 
-**Hybrid circuit structure (N=5):**
-- **Atom registers:** 5 independent blocks × 3 qubits = 15 qubits.
-- **Bond register:** 2 qubits, **reused** sequentially across chain edges.
-- **Ancillas:** 2 qubits, computed/uncomputed per bond for quantum-controlled masking.
-- **Total:** 17 data qubits (3N+2) + 2 ancillas = 19 qubits in the circuit.
+> **Validity × Uniqueness**
 
-**Chain bonds:**
-- We generate bond codes for the 5-site chain:
-  `EDGE_LIST = [(0,1),(1,2),(2,3),(3,4)]`
-- Generator output uses:
-  - `atoms`: length 5
-  - `bonds`: length 4 aligned with `EDGE_LIST`
+where validity and uniqueness are defined via RDKit sanitization and canonical SMILES tracking.
 
-**No classical feedforward**
-- No `if_test`/`c_if` are used. The PDF conditional bond behavior is implemented **inside the circuit**
-  via quantum-controlled masking: the bond ansatz is applied only when both endpoints decode to a
-  non-`NONE` atom.
+---
 
-### Key modules
+## Key Concepts
 
-- `env/mol_env_5atom.py`
-  - Vocab:
-    - `ATOM_VOCAB = ["NONE", "C", "N", "O"]`
-    - `BOND_VOCAB = ["NONE", "SINGLE", "DOUBLE", "TRIPLE"]`
-  - `FiveAtomMolEnv.build_smiles_from_actions(atoms, bonds)`:
-    - expects `atoms` length 5 and `bonds` length 4 aligned with `EDGE_LIST`
-    - builds an RDKit `RWMol` using only non-`NONE` sites and only non-`NONE` chain bonds between existing endpoints
-    - sanitizes, canonicalizes, rejects fragments (`"."` in SMILES) when `enforce_single_fragment=True`
-    - tracks `samples`, `valid_count`, `unique_valid_count` and exposes `valid_ratio`, `unique_ratio`, `target_metric`, `stats()`
-- `qmg/sqmg_circuit.py`
-  - Builds the hybrid circuit and measures:
-    - atoms: 5×3 bits (15)
-    - bonds: 4×2 bits (8)
-    - total: 23 classical bits (ancillas are not measured)
-  - Bond module is quantum-controlled by ancillas (no classical conditionals).
-- `qmg/sqmg_generator.py`
-  - Runs `AerSimulator(...).run(circuit, shots=batch_size, memory=True)` and decodes per-shot into:
-    - `atom_ids` (len=5) using a fixed 3-bit mapping
-    - `bond_ids` (len=4) using a fixed 2-bit mapping
-- `scripts/sample_qmg.py`
-  - Samples N molecules and prints:
-    `samples, valid_count, unique_valid_count, valid_ratio, unique_ratio, target_metric`,
-    plus up to 10 unique SMILES.
-- `scripts/train_qmg_qrl.py`
-  - Alternates SPSA updates between QMG (maximize reward with uniqueness/QRL prior) and QRL (fit novelty targets).
+### 1) Fixed 5-site molecular representation
+We represent a molecule as:
+- **Atoms**: 5 categorical decisions (one per site)
+- **Bonds**: 4 categorical decisions for a **chain** topology:
+  - `(0–1), (1–2), (2–3), (3–4)`
 
-### Commands
-```bash
-# sample from QMG (SQMG default)
-python -m scripts.sample_qmg --n 2000 --mode sqmg
+This matches the intended SQMG/QCNC “chain” spirit (as opposed to full-graph bonds).
 
-# baseline factorized generator
-python -m scripts.sample_qmg --n 2000 --mode factorized
+### 2) Vocabularies and decode maps (fixed)
+Atoms and bonds are decoded from bitstrings using the following fixed mappings:
 
-# joint QMG+QRL training (SPSA)
-python -m scripts.train_qmg_qrl --steps 2000 --batch-size 64
+**Atom vocabulary**
+```python
+ATOM_VOCAB = ["NONE", "C", "N", "O"]
+Bond vocabulary
 
-# tests
-python -m pytest -q
-```
+python
+複製程式碼
+BOND_VOCAB = ["NONE", "SINGLE", "DOUBLE", "TRIPLE"]
+Atom 3-bit decode mapping
 
-### Install
-```bash
-python -m venv .venv
-.\.venv\Scripts\activate   # Windows
+000 -> NONE
+
+001 -> C
+
+010 -> N
+
+011 -> O
+
+100..111 -> NONE (reserved → NONE)
+
+Bond 2-bit decode mapping
+
+00 -> NONE
+
+01 -> SINGLE
+
+10 -> DOUBLE
+
+11 -> TRIPLE
+
+3) SQMG mode: dynamic circuit + bond reuse + in-circuit masking
+In SQMG mode, the quantum circuit follows a hybrid structure:
+
+Atom blocks: 5 independent PQC blocks
+
+3 qubits per atom site → 15 qubits total
+
+each block outputs a 3-bit atom code via measurement
+
+Bond register: 2 qubits reused across all 4 chain bonds
+
+for each bond, we reset → apply bond module → measure → reset
+
+Ancillas (optional, small): a small number (e.g., 2) may be used to implement masking inside the circuit, and must be uncomputed back to |0⟩ before moving to the next bond to avoid cross-bond contamination.
+
+In-circuit masking (core requirement)
+The SQMG/QCNC “conditional bond module” behavior is implemented without classical feedforward (no if_test, no c_if). Instead, a quantum-controlled mask is constructed:
+
+Compute none_i = (atom_i == 000) and none_j = (atom_j == 000) with reversible logic (using ancillas).
+
+Convert to active flags:
+
+active_i = NOT(none_i)
+
+active_j = NOT(none_j)
+
+Apply the entire bond ansatz (rotation + entangling gates on bond qubits) as a double-controlled operation, controlled on (active_i, active_j).
+
+Uncompute ancillas back to |0⟩.
+
+As a result, the bond module is only effective when both endpoints are non-NONE (as in the PDF spirit), but accomplished with quantum control, not classical control flow.
+
+Repository Layout
+env/
+RDKit environment for building molecules from (atoms, bonds), computing metrics, and enforcing validity rules.
+
+qmg/
+Quantum Molecular Generators
+
+SQMG circuits and generator (dynamic circuits, bond reuse, in-circuit masking)
+
+optional factorized/baseline generator utilities (if present)
+
+qrl/
+QRL scaffold / helper components (kept for later integration; not the primary focus of SQMG wiring).
+
+scripts/
+Entry points:
+
+sampling (sample_qmg.py)
+
+optional training scripts (if present in repo)
+
+tests/
+Pytest smoke tests verifying shape contracts and non-crashing execution.
+
+Environment and Metrics (RDKit)
+FiveAtomMolEnv.build_smiles_from_actions(atoms, bonds)
+Inputs:
+
+atoms: length 5, values index into ATOM_VOCAB
+
+bonds: length 4, values index into BOND_VOCAB, aligned with chain edges
+
+Validity rules:
+
+active_atoms < 2 → invalid
+
+Add only non-NONE atoms to RDKit
+
+Add a bond only if endpoints exist and bond type is not NONE
+
+RDKit sanitize + canonicalize
+
+Reject disconnected fragments if canonical SMILES contains "."
+
+Metrics
+valid_ratio
+
+unique_ratio
+
+target_metric = valid_ratio × unique_ratio
+
+Installation
+Recommended environment: WSL + conda
+
+bash
+複製程式碼
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate qrl_fq_5atom
 pip install -r requirements.txt
 pip install -r requirements-dev.txt
-```
+Quickstart
+bash
+複製程式碼
+# run tests
+python -m pytest -q
 
-### Notes
-- `sqmg_generator.py` uses `AerSimulator` with `memory=True` to decode hybrid measurements; the factorized QMG and QRL helper use the Aer Sampler primitive.
-- Because `NONE` atoms and `NONE` bonds are allowed, early sampling can have low `valid_ratio`. The intended learning signal comes from reward shaping + uniqueness pressure during training.
+# sample molecules using SQMG
+python -m scripts.sample_qmg --mode sqmg --n 2000
+License
+See LICENSE.
