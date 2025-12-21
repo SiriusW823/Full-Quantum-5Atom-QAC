@@ -1,3 +1,8 @@
+"""Quantum critic PQC for A2C (scalar value in [0, 1]).
+
+Constructor defaults: n_qubits=8 and n_layers=2, both tunable.
+"""
+
 from __future__ import annotations
 
 import numpy as np
@@ -72,4 +77,3 @@ class QiskitQuantumCritic:
 
 
 __all__ = ["QiskitQuantumCritic"]
-

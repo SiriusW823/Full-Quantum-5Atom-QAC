@@ -1,10 +1,13 @@
-# Full-Quantum 5-Atom SQMG + QRL Scaffold
+# Full-Quantum 5-Atom SQMG + Quantum A2C QRL
 
-This repository implements a **quantum molecular generation** pipeline (SQMG/QMG) and a **quantum-assisted RL scaffold** (QRL) using **Qiskit** and **RDKit**. The primary objective is to maximize:
+This repository implements a **quantum molecular generation** pipeline (SQMG/QMG) and a **quantum actor–critic RL scaffold** (QRL) using **Qiskit** and **RDKit**. The primary objective is to maximize:
 
 **Validity × Uniqueness**
 
-where validity is defined by RDKit sanitization and uniqueness is tracked via canonical SMILES.
+Validity is defined by RDKit sanitization; uniqueness is tracked via canonical SMILES.
+
+## Classical BO vs Quantum RL
+The reference PDF discusses classical Bayesian Optimization (BO) for parameter search. This repo **does not use BO** for training. Instead, it uses a **quantum A2C (actor–critic)** setup with PQC-based actor and critic to directly optimize **Validity × Uniqueness**.
 
 ## Representation (N = 5 chain)
 We use a fixed 5-site chain:
@@ -63,6 +66,22 @@ This matches the SQMG/QCNC spirit without classical control flow.
 - Add a bond only when both endpoints exist and bond type is not `NONE`.
 - Sanitize + canonicalize SMILES.
 - Reject disconnected fragments if SMILES contains `"."`.
+
+## Quantum A2C (QRL)
+The A2C loop uses **PQC actor/critic** models:
+
+- **Actor**: PQC outputs a mean vector `mu` for a Gaussian policy (action_dim=16).
+- **Critic**: PQC outputs a scalar value `V(s)` mapped to `[0, 1]`.
+- **Optimization**: SPSA updates for both actor and critic.
+- **Action-to-QMG**: a fixed random projection maps action → parameter delta for QMG.
+
+### State features (A2C)
+The state vector includes:
+
+- `valid_ratio`, `unique_ratio`, `target_metric`
+- normalized counts (`valid_count/samples`, `unique_valid_count/samples`)
+- **novelty feature**: `log_unique = log1p(unique_valid_count) / log1p(samples)`
+- QMG weight statistics (`mean`, `std`, `L2`, `min`, `max`)
 
 ## Quickstart
 ```bash

@@ -60,6 +60,7 @@ def build_state(gen, stats: Optional[Dict[str, float]] = None) -> np.ndarray:
 
     dup_ratio = max(valid - unique, 0) / s
     sample_scale = np.log1p(samples) / 10.0
+    log_unique = np.log1p(unique) / max(1.0, np.log1p(samples))
 
     theta = gen.get_weights()
     if theta.size:
@@ -80,6 +81,7 @@ def build_state(gen, stats: Optional[Dict[str, float]] = None) -> np.ndarray:
             unique / s,
             dup_ratio,
             sample_scale,
+            log_unique,
             theta_mean,
             theta_std,
             theta_l2,
@@ -171,7 +173,12 @@ def a2c_step(
     valid_ratio_step = dv / ds
     unique_ratio_step = du / ds
     target_metric_step = valid_ratio_step * unique_ratio_step
-    reward = float(target_metric_step)
+
+    if dv == 0 or du == 0:
+        reward = -0.01
+    else:
+        raw_reward = float(ds * dv * du)
+        reward = raw_reward / float(ds)
 
     value = float(critic.forward(state))
     advantage = reward - value

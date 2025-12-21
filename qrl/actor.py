@@ -1,3 +1,8 @@
+"""Quantum actor PQC for A2C.
+
+Constructor defaults: n_qubits=8 (recommended 6–8) and n_layers=2 (recommended 2–3).
+"""
+
 from __future__ import annotations
 
 from typing import List
@@ -98,4 +103,3 @@ class QiskitQuantumActor:
 
 
 __all__ = ["QiskitQuantumActor"]
-
