@@ -64,3 +64,14 @@ def test_env_uniqueness_updates_only_when_valid():
     bonds_fragment = [BOND_VOCAB.index("NONE")] * len(EDGE_LIST)
     env.build_smiles_from_actions(atoms, bonds_fragment)
     assert env.metrics.unique_valid_count == 1
+
+
+def test_env_stats_pdf_metrics():
+    env = FiveAtomMolEnv()
+    atoms = [ATOM_VOCAB.index("C")] * 5
+    bonds = [BOND_VOCAB.index("SINGLE")] * len(EDGE_LIST)
+    env.build_smiles_from_actions(atoms, bonds)
+    stats = env.stats()
+    assert 0.0 <= stats["validity_pdf"] <= 1.0
+    assert 0.0 <= stats["uniqueness_pdf"] <= 1.0
+    assert 0.0 <= stats["target_metric_pdf"] <= 1.0

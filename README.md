@@ -68,12 +68,23 @@ This matches the SQMG/QCNC spirit without classical control flow.
 - Reject disconnected fragments if SMILES contains `"."`.
 
 ## Quantum A2C (QRL)
-The A2C loop uses **PQC actor/critic** models:
+The A2C loop uses **PQC actor/critic** models (no classical BO), trained with SPSA schedules. The reward is step-local and PDF-aligned:
+
+`score_pdf_step = (valid_count / samples) * (unique_valid_in_batch / max(valid_count, 1))`
+
+with a mild repeat penalty and a small novelty bonus for exploration. A short reward window smooths variance.
 
 - **Actor**: PQC outputs a mean vector `mu` for a Gaussian policy (action_dim=16).
 - **Critic**: PQC outputs a scalar value `V(s)` mapped to `[0, 1]`.
 - **Optimization**: SPSA updates for both actor and critic.
 - **Action-to-QMG**: a fixed random projection maps action → parameter delta for QMG.
+
+### Optimized composite score
+The optimized PDF-style composite is computed per batch:
+
+`composite = (valid_count / samples) * (unique_valid_count / max(valid_count, 1))`
+
+which simplifies to `unique_valid_count / samples`.
 
 ### State features (A2C)
 The state vector includes:
@@ -91,8 +102,8 @@ python -m pytest -q
 # sample molecules using SQMG
 python -m scripts.sample_qmg --mode sqmg --n 2000
 
-# train with quantum A2C
-python -m scripts.train_qmg_qrl --algo a2c --steps 200 --batch-size 256
+# train with quantum A2C (K-batch averaging)
+python -m scripts.train_qmg_qrl --algo a2c --steps 1000 --batch-size 256 --k-batches 3 --eval-every 100 --eval-batch-size 2000
 ```
 
 ## Notes

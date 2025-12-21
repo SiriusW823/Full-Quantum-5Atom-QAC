@@ -121,6 +121,8 @@ def run_a2c(args: argparse.Namespace) -> None:
         n_qubits=args.actor_qubits,
         n_layers=args.actor_layers,
         action_dim=args.action_dim,
+        sigma_min=args.sigma_min,
+        sigma_max=args.sigma_max,
         seed=args.seed,
     )
     critic = QiskitQuantumCritic(
@@ -135,12 +137,25 @@ def run_a2c(args: argparse.Namespace) -> None:
 
     cfg = A2CConfig(
         action_dim=args.action_dim,
-        sigma=args.sigma,
         lr_theta=args.lr_theta,
         actor_a=args.actor_a,
         actor_c=args.actor_c,
         critic_a=args.critic_a,
         critic_c=args.critic_c,
+        k_batches=args.k_batches,
+        beta_novelty=args.beta_novelty,
+        lambda_repeat=args.lambda_repeat,
+        ent_coef=args.ent_coef,
+        reward_floor=args.reward_floor,
+        reward_clip_low=args.reward_clip_low,
+        reward_clip_high=args.reward_clip_high,
+        sigma_min=args.sigma_min,
+        sigma_max=args.sigma_max,
+        sigma_boost=args.sigma_boost,
+        sigma_decay=args.sigma_decay,
+        patience=args.patience,
+        spsa_alpha=args.spsa_alpha,
+        spsa_gamma=args.spsa_gamma,
     )
 
     for step in range(1, args.steps + 1):
@@ -159,22 +174,34 @@ def run_a2c(args: argparse.Namespace) -> None:
         if step % args.log_every == 0 or step == 1:
             print(f"[step {step}]")
             print(
-                f"samples={qmg.env.samples} valid={qmg.env.valid_count} unique={qmg.env.unique_valid_count} "
-                f"valid_ratio={result['valid_ratio']:.4f} unique_ratio={result['unique_ratio']:.4f} "
-                f"target_metric={result['target_metric']:.6f}"
+                f"samples={qmg.env.samples} valid={qmg.env.valid_count} unique={qmg.env.unique_valid_count}"
             )
             print(
-                f"reward={result['reward']:.6f} value={result['value']:.6f} "
-                f"adv={result['advantage']:.6f} actor_loss={result['actor_loss']:.6f} "
-                f"critic_loss={result['critic_loss']:.6f}"
+                f"reward={result['reward']:.6f} reward_avg={result['reward_avg']:.6f} "
+                f"reward_main={result['reward_main']:.6f} repeat_penalty={result['repeat_penalty']:.6f}"
             )
             print(
-                f"step_ratios: vr_step={result['valid_ratio']:.4f} "
-                f"ur_step={result['unique_ratio']:.4f} "
-                f"tm_step={result['target_metric']:.6f}"
+                f"step_ratios: validity_step={result['validity_step']:.4f} "
+                f"uniqueness_step={result['uniqueness_step']:.4f} "
+                f"score_pdf_step={result['score_pdf_step']:.6f} "
+                f"novelty_step={result['novelty_step']:.6f} "
+                f"repeat_step={result['repeat_step']:.6f}"
             )
             print(
-                f"step_deltas: ds={result['ds']:.0f} dv={result['dv']:.0f} du={result['du']:.0f}"
+                f"step_deltas: ds={result['ds']:.0f} dv={result['dv']:.0f} "
+                f"unique_in_batch={result['unique_valid_in_batch']:.0f} "
+                f"novel_in_batch={result['novel_valid_in_batch']:.0f} "
+                f"sigma={result['sigma']:.4f} entropy={result['entropy']:.6f}"
+            )
+            print(
+                f"value={result['value']:.6f} advantage={result['advantage']:.6f} "
+                f"actor_loss={result['actor_loss']:.6f} critic_loss={result['critic_loss']:.6f}"
+            )
+            stats_pdf = qmg.env.stats()
+            print(
+                f"pdf_cumulative: validity_pdf={stats_pdf['validity_pdf']:.4f} "
+                f"uniqueness_pdf={stats_pdf['uniqueness_pdf']:.4f} "
+                f"target_metric_pdf={stats_pdf['target_metric_pdf']:.6f}"
             )
             uniques = sorted(qmg.env.seen_smiles)[:10]
             print("Top unique SMILES (up to 10):")
@@ -183,11 +210,13 @@ def run_a2c(args: argparse.Namespace) -> None:
             print("-" * 60)
 
         if args.eval_every > 0 and step % args.eval_every == 0:
-            qmg.sample_actions(batch_size=args.eval_batch_size)
+            eval_batch = qmg.sample_actions(batch_size=args.eval_batch_size)
+            eval_ds = args.eval_batch_size
+            eval_du = int(sum(1 for u in getattr(eval_batch, "uniques", []) if u))
+            eval_composite = eval_du / eval_ds if eval_ds else 0.0
             stats = qmg.env.stats()
             print(
-                f"[eval step {step}] samples={stats['samples']} valid_ratio={stats['valid_ratio']:.4f} "
-                f"unique_ratio={stats['unique_ratio']:.4f} target_metric={stats['target_metric']:.6f}"
+                f"[eval step {step}] samples={stats['samples']} eval_composite={eval_composite:.6f}"
             )
             print("-" * 60)
 
@@ -206,12 +235,25 @@ def main():
     parser.add_argument("--seed", type=int, default=123)
 
     parser.add_argument("--action-dim", type=int, default=16)
-    parser.add_argument("--sigma", type=float, default=0.2)
     parser.add_argument("--lr-theta", type=float, default=0.03)
     parser.add_argument("--actor-a", type=float, default=0.05)
     parser.add_argument("--actor-c", type=float, default=0.01)
     parser.add_argument("--critic-a", type=float, default=0.05)
     parser.add_argument("--critic-c", type=float, default=0.01)
+    parser.add_argument("--k-batches", type=int, default=3)
+    parser.add_argument("--beta-novelty", type=float, default=0.05)
+    parser.add_argument("--lambda-repeat", type=float, default=0.10)
+    parser.add_argument("--ent-coef", type=float, default=0.01)
+    parser.add_argument("--reward-floor", type=float, default=-0.01)
+    parser.add_argument("--reward-clip-low", type=float, default=-0.05)
+    parser.add_argument("--reward-clip-high", type=float, default=1.0)
+    parser.add_argument("--sigma-min", type=float, default=0.05)
+    parser.add_argument("--sigma-max", type=float, default=0.50)
+    parser.add_argument("--sigma-boost", type=float, default=1.5)
+    parser.add_argument("--sigma-decay", type=float, default=0.995)
+    parser.add_argument("--patience", type=int, default=5)
+    parser.add_argument("--spsa-alpha", type=float, default=0.602)
+    parser.add_argument("--spsa-gamma", type=float, default=0.101)
     parser.add_argument("--actor-qubits", type=int, default=8)
     parser.add_argument("--actor-layers", type=int, default=2)
     parser.add_argument("--critic-qubits", type=int, default=8)

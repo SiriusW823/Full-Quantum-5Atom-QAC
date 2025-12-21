@@ -1,11 +1,11 @@
 """Quantum actor PQC for A2C.
 
-Constructor defaults: n_qubits=8 (recommended 6–8) and n_layers=2 (recommended 2–3).
+Constructor defaults: n_qubits=8 (recommended 6-8) and n_layers=2 (recommended 2-3).
 """
 
 from __future__ import annotations
 
-from typing import List
+from typing import List, Tuple
 
 import numpy as np
 from qiskit import QuantumCircuit
@@ -38,8 +38,29 @@ def _z_expectations_from_statevector(statevector: Statevector, n_qubits: int) ->
     return z
 
 
+def _softplus(x: float) -> float:
+    if x >= 0:
+        return float(x + np.log1p(np.exp(-x)))
+    return float(np.log1p(np.exp(x)))
+
+
+def gaussian_logprob(action: np.ndarray, mu: np.ndarray, sigma: float) -> float:
+    action = np.asarray(action, dtype=float)
+    mu = np.asarray(mu, dtype=float)
+    if action.shape != mu.shape:
+        raise ValueError("action and mu must have the same shape")
+    sigma = float(max(sigma, 1e-6))
+    diff = (action - mu) / sigma
+    return float(-0.5 * np.sum(diff**2 + np.log(2.0 * np.pi * sigma**2)))
+
+
+def gaussian_entropy(action_dim: int, sigma: float) -> float:
+    sigma = float(max(sigma, 1e-6))
+    return float(action_dim * (0.5 * np.log(2.0 * np.pi * np.e * sigma**2)))
+
+
 class QiskitQuantumActor:
-    """Quantum actor that outputs a mean action vector (mu) in [-1, 1]."""
+    """Quantum actor that outputs (mu, sigma) for a diagonal Gaussian policy."""
 
     def __init__(
         self,
@@ -47,12 +68,16 @@ class QiskitQuantumActor:
         n_qubits: int = 8,
         n_layers: int = 2,
         action_dim: int = 16,
+        sigma_min: float = 0.05,
+        sigma_max: float = 0.50,
         seed: int | None = None,
     ) -> None:
         self.state_dim = int(state_dim)
         self.n_qubits = int(n_qubits)
         self.n_layers = int(n_layers)
         self.action_dim = int(action_dim)
+        self.sigma_min = float(sigma_min)
+        self.sigma_max = float(sigma_max)
         self.rng = np.random.default_rng(seed)
 
         self.input_params = ParameterVector("x", self.n_qubits)
@@ -78,6 +103,8 @@ class QiskitQuantumActor:
         self.weights = self.rng.normal(0.0, 0.2, size=len(self.weight_params))
         self.proj = self.rng.normal(0.0, 1.0, size=(self.action_dim, self.n_qubits))
         self.proj /= np.sqrt(self.n_qubits)
+        self.proj_sigma = self.rng.normal(0.0, 1.0, size=(self.n_qubits,))
+        self.proj_sigma /= np.sqrt(self.n_qubits)
 
     @property
     def num_weights(self) -> int:
@@ -90,7 +117,7 @@ class QiskitQuantumActor:
         assert new_w.shape == self.weights.shape
         self.weights = np.array(new_w, copy=True)
 
-    def forward(self, state: np.ndarray) -> np.ndarray:
+    def forward(self, state: np.ndarray) -> Tuple[np.ndarray, float]:
         angles = _state_to_angles(state, self.n_qubits)
         bind = {self.input_params[i]: float(angles[i]) for i in range(self.n_qubits)}
         for i, w in enumerate(self.weights):
@@ -99,7 +126,10 @@ class QiskitQuantumActor:
         sv = Statevector.from_instruction(bound)
         z = _z_expectations_from_statevector(sv, self.n_qubits)
         mu = np.tanh(self.proj @ z)
-        return mu
+        log_sigma = float(self.proj_sigma @ z)
+        sigma = _softplus(log_sigma)
+        sigma = float(np.clip(sigma, self.sigma_min, self.sigma_max))
+        return mu, sigma
 
 
-__all__ = ["QiskitQuantumActor"]
+__all__ = ["QiskitQuantumActor", "gaussian_logprob", "gaussian_entropy"]

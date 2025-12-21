@@ -161,13 +161,22 @@ class FiveAtomMolEnv:
         return self.valid_ratio * self.unique_ratio
 
     def stats(self) -> dict:
+        samples = int(getattr(self, "samples", 0) or 0)
+        valid = int(getattr(self, "valid_count", 0) or 0)
+        unique = int(getattr(self, "unique_valid_count", 0) or 0)
+        validity_pdf = valid / max(1, samples)
+        uniqueness_pdf = unique / max(1, valid)
+        target_metric_pdf = validity_pdf * uniqueness_pdf
         return {
-            "samples": int(getattr(self, "samples", 0) or 0),
-            "valid_count": int(getattr(self, "valid_count", 0) or 0),
-            "unique_valid_count": int(getattr(self, "unique_valid_count", 0) or 0),
+            "samples": samples,
+            "valid_count": valid,
+            "unique_valid_count": unique,
             "valid_ratio": self.valid_ratio,
             "unique_ratio": self.unique_ratio,
             "target_metric": self.target_metric,
+            "validity_pdf": validity_pdf,
+            "uniqueness_pdf": uniqueness_pdf,
+            "target_metric_pdf": target_metric_pdf,
         }
 
 
