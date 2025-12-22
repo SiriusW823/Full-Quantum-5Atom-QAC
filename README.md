@@ -106,6 +106,15 @@ python -m scripts.sample_qmg --mode sqmg --n 2000
 python -m scripts.train_qmg_qrl --algo a2c --steps 1000 --batch-size 256 --k-batches 3 --eval-every 100 --eval-batch-size 2000
 ```
 
+## DGX Quickstart (one-command training)
+The one-command entrypoint trains QMG+QRL end-to-end and logs the **PDF-style reward**
+`validity_step * uniqueness_step` in the range `[0, 1]`, saving `metrics.csv` and
+`reward.png` under the output directory.
+
+```bash
+python -m scripts.run_one_train --episodes 300 --batch-size 256 --out runs/dgx_run
+```
+
 ## Notes
 You may see Qiskit deprecation warnings during tests; these are from upstream APIs and do not affect correctness.
 

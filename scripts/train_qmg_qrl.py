@@ -178,7 +178,8 @@ def run_a2c(args: argparse.Namespace) -> None:
             )
             print(
                 f"reward={result['reward']:.6f} reward_avg={result['reward_avg']:.6f} "
-                f"reward_main={result['reward_main']:.6f} repeat_penalty={result['repeat_penalty']:.6f}"
+                f"reward_step={result['reward_step']:.6f} reward_main={result['reward_main']:.6f} "
+                f"repeat_penalty={result['repeat_penalty']:.6f}"
             )
             print(
                 f"step_ratios: validity_step={result['validity_step']:.4f} "
@@ -240,11 +241,11 @@ def main():
     parser.add_argument("--actor-c", type=float, default=0.01)
     parser.add_argument("--critic-a", type=float, default=0.05)
     parser.add_argument("--critic-c", type=float, default=0.01)
-    parser.add_argument("--k-batches", type=int, default=3)
-    parser.add_argument("--beta-novelty", type=float, default=0.05)
-    parser.add_argument("--lambda-repeat", type=float, default=0.10)
+    parser.add_argument("--k-batches", type=int, default=1)
+    parser.add_argument("--beta-novelty", type=float, default=0.0)
+    parser.add_argument("--lambda-repeat", type=float, default=0.0)
     parser.add_argument("--ent-coef", type=float, default=0.01)
-    parser.add_argument("--reward-floor", type=float, default=-0.01)
+    parser.add_argument("--reward-floor", type=float, default=0.0)
     parser.add_argument("--reward-clip-low", type=float, default=-0.05)
     parser.add_argument("--reward-clip-high", type=float, default=1.0)
     parser.add_argument("--sigma-min", type=float, default=0.05)

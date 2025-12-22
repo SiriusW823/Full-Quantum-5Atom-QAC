@@ -26,11 +26,11 @@ def test_qrl_a2c_smoke():
         actor_c=0.01,
         critic_a=0.02,
         critic_c=0.01,
-        k_batches=2,
-        beta_novelty=0.05,
-        lambda_repeat=0.10,
+        k_batches=1,
+        beta_novelty=0.0,
+        lambda_repeat=0.0,
         ent_coef=0.01,
-        reward_floor=-0.01,
+        reward_floor=0.0,
         reward_clip_low=-0.05,
         reward_clip_high=1.0,
         sigma_min=0.05,
@@ -55,6 +55,7 @@ def test_qrl_a2c_smoke():
     )
 
     assert "reward" in result
+    assert "reward_step" in result
     assert "validity_step" in result
     assert "uniqueness_step" in result
     assert "score_pdf_step" in result
@@ -68,7 +69,7 @@ def test_qrl_a2c_smoke():
     assert "unique_valid_in_batch" in result
     assert "novel_valid_in_batch" in result
 
-    assert "ds" in result and result["ds"] == float(batch_size)
+    assert "ds" in result and result["ds"] == batch_size
     assert "dv" in result and 0 <= result["dv"] <= result["ds"]
     assert int(result["dv"]) == result["dv"]
     assert int(result["unique_valid_in_batch"]) == result["unique_valid_in_batch"]
@@ -80,6 +81,7 @@ def test_qrl_a2c_smoke():
     assert abs(result["validity_step"] - validity_calc) <= 1e-12
     assert abs(result["uniqueness_step"] - uniqueness_calc) <= 1e-12
     assert abs(result["score_pdf_step"] - score_calc) <= 1e-12
+    assert abs(result["reward_step"] - score_calc) <= 1e-12
     assert 0.0 <= result["validity_step"] <= 1.0
     assert 0.0 <= result["uniqueness_step"] <= 1.0
     assert 0.0 <= result["score_pdf_step"] <= 1.0

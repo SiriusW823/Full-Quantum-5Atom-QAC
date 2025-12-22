@@ -19,11 +19,11 @@ class A2CConfig:
     critic_c: float = 0.01
     spsa_alpha: float = 0.602
     spsa_gamma: float = 0.101
-    k_batches: int = 3
-    beta_novelty: float = 0.05
-    lambda_repeat: float = 0.10
+    k_batches: int = 1
+    beta_novelty: float = 0.0
+    lambda_repeat: float = 0.0
     ent_coef: float = 0.01
-    reward_floor: float = -0.01
+    reward_floor: float = 0.0
     reward_clip_low: float = -0.05
     reward_clip_high: float = 1.0
     sigma_min: float = 0.05
@@ -40,7 +40,7 @@ class A2CConfig:
     adv_m2: float = 0.0
     no_unique_steps: int = 0
     seen_valid_smiles: Set[str] = field(default_factory=set)
-    reward_history: Deque[float] = field(default_factory=lambda: deque(maxlen=3))
+    reward_history: Deque[float] = field(default_factory=lambda: deque(maxlen=1))
 
 
 def _safe_stats(env) -> Dict[str, float]:
@@ -175,30 +175,60 @@ def a2c_step(
     theta = gen.get_weights()
     gen.set_weights(theta + cfg.lr_theta * delta)
 
-    batch = gen.sample_actions(batch_size=batch_size)
+    reward_k_list = []
     ds = int(batch_size)
-    valid_smiles = [s for s, v in zip(batch.smiles, batch.valids) if v and s]
-    dv = len(valid_smiles)
-    unique_valid_in_batch = len(set(valid_smiles))
-    novel_valid_in_batch = sum(1 for s in valid_smiles if s not in cfg.seen_valid_smiles)
-    if valid_smiles:
-        cfg.seen_valid_smiles.update(valid_smiles)
+    dv_any = False
+    last_counts = None
 
-    validity_step = dv / ds if ds else 0.0
-    uniqueness_pdf_step = (unique_valid_in_batch / dv) if dv > 0 else 0.0
-    score_pdf_step = validity_step * uniqueness_pdf_step
-    novelty_step = (novel_valid_in_batch / dv) if dv > 0 else 0.0
-    repeat_step = ((dv - unique_valid_in_batch) / ds) if ds else 0.0
+    for k_idx in range(max(1, cfg.k_batches)):
+        batch = gen.sample_actions(batch_size=batch_size)
+        valid_smiles = [s for s, v in zip(batch.smiles, batch.valids) if v and s]
+        dv = len(valid_smiles)
+        unique_valid_in_batch = len(set(valid_smiles))
+        novel_valid_in_batch = sum(1 for s in valid_smiles if s not in cfg.seen_valid_smiles)
+        if valid_smiles:
+            cfg.seen_valid_smiles.update(valid_smiles)
 
-    reward = score_pdf_step + cfg.beta_novelty * novelty_step - cfg.lambda_repeat * repeat_step
-    if dv == 0:
-        reward = cfg.reward_floor
-    reward = float(np.clip(reward, cfg.reward_clip_low, cfg.reward_clip_high))
+        validity_step = dv / ds if ds else 0.0
+        uniqueness_pdf_step = (unique_valid_in_batch / dv) if dv > 0 else 0.0
+        score_pdf_step = validity_step * uniqueness_pdf_step
+        reward_step = score_pdf_step
+        novelty_step = (novel_valid_in_batch / dv) if dv > 0 else 0.0
+        repeat_step = ((dv - unique_valid_in_batch) / ds) if ds else 0.0
 
+        reward_k = reward_step + cfg.beta_novelty * novelty_step - cfg.lambda_repeat * repeat_step
+        if dv == 0:
+            reward_k = cfg.reward_floor
+        reward_k = float(np.clip(reward_k, cfg.reward_clip_low, cfg.reward_clip_high))
+        reward_k_list.append(reward_k)
+
+        if dv > 0:
+            dv_any = True
+
+        if k_idx == max(1, cfg.k_batches) - 1:
+            last_counts = (
+                dv,
+                unique_valid_in_batch,
+                novel_valid_in_batch,
+                validity_step,
+                uniqueness_pdf_step,
+                score_pdf_step,
+                reward_step,
+                novelty_step,
+                repeat_step,
+            )
+
+    if last_counts is None:
+        last_counts = (0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0)
+
+    dv, unique_valid_in_batch, novel_valid_in_batch, validity_step, uniqueness_pdf_step, score_pdf_step, reward_step, novelty_step, repeat_step = last_counts
+
+    reward_step_mean = float(np.mean(reward_k_list)) if reward_k_list else 0.0
     if cfg.reward_history.maxlen != max(1, cfg.k_batches):
         cfg.reward_history = deque(cfg.reward_history, maxlen=max(1, cfg.k_batches))
-    cfg.reward_history.append(reward)
-    reward_avg = float(np.mean(cfg.reward_history)) if cfg.reward_history else reward
+    cfg.reward_history.append(reward_step_mean)
+    reward_avg = float(np.mean(cfg.reward_history)) if cfg.reward_history else reward_step_mean
+    reward = reward_step_mean
 
     if unique_valid_in_batch == 0:
         cfg.no_unique_steps += 1
@@ -243,7 +273,7 @@ def a2c_step(
 
     actor_loss = 0.0
     entropy = gaussian_entropy(cfg.action_dim, sigma)
-    if dv > 0:
+    if dv_any:
         def actor_loss_fn(w: np.ndarray) -> float:
             mu_w, sigma_w = _eval_with_weights(actor, w, state)
             sigma_w = float(np.clip(sigma_w, cfg.sigma_min, cfg.sigma_max))
@@ -259,6 +289,7 @@ def a2c_step(
     return {
         "reward": float(reward),
         "reward_avg": float(reward_avg),
+        "reward_step": float(reward_step),
         "reward_main": float(score_pdf_step),
         "repeat_penalty": float(cfg.lambda_repeat * repeat_step),
         "validity_step": float(validity_step),
