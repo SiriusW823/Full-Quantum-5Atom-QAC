@@ -13,15 +13,13 @@ from qmg.sqmg_circuit import EDGE_LIST, N_ATOMS, build_sqmg_hybrid_chain_circuit
 # Atom 3-bit code mapping (fixed):
 #   000 -> NONE
 #   001 -> C
-#   010 -> N
-#   011 -> O
-#   100..111 -> NONE
-_ATOM_CODE_TO_ID = {
-    0: 0,  # NONE
-    1: 1,  # C
-    2: 2,  # N
-    3: 3,  # O
-}
+#   010 -> O
+#   011 -> N
+#   100 -> S
+#   101 -> P
+#   110 -> F
+#   111 -> Cl
+_ATOM_CODE_TO_ID = {i: i for i in range(8)}
 
 _ATOM_NONE_ID = 0  # ATOM_VOCAB = ["NONE", "C", "N", "O"]
 _BOND_NONE_ID = 0  # BOND_VOCAB = ["NONE", "SINGLE", "DOUBLE", "TRIPLE"]

@@ -202,7 +202,8 @@ def run_a2c(args: argparse.Namespace) -> None:
             print(
                 f"pdf_cumulative: validity_pdf={stats_pdf['validity_pdf']:.4f} "
                 f"uniqueness_pdf={stats_pdf['uniqueness_pdf']:.4f} "
-                f"target_metric_pdf={stats_pdf['target_metric_pdf']:.6f}"
+                f"target_metric_pdf={stats_pdf['target_metric_pdf']:.6f} "
+                f"reward_pdf={stats_pdf['reward_pdf']:.6f}"
             )
             uniques = sorted(qmg.env.seen_smiles)[:10]
             print("Top unique SMILES (up to 10):")
@@ -246,7 +247,7 @@ def main():
     parser.add_argument("--lambda-repeat", type=float, default=0.0)
     parser.add_argument("--ent-coef", type=float, default=0.01)
     parser.add_argument("--reward-floor", type=float, default=0.0)
-    parser.add_argument("--reward-clip-low", type=float, default=-0.05)
+    parser.add_argument("--reward-clip-low", type=float, default=0.0)
     parser.add_argument("--reward-clip-high", type=float, default=1.0)
     parser.add_argument("--sigma-min", type=float, default=0.05)
     parser.add_argument("--sigma-max", type=float, default=0.50)

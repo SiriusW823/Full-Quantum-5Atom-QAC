@@ -75,3 +75,4 @@ def test_env_stats_pdf_metrics():
     assert 0.0 <= stats["validity_pdf"] <= 1.0
     assert 0.0 <= stats["uniqueness_pdf"] <= 1.0
     assert 0.0 <= stats["target_metric_pdf"] <= 1.0
+    assert 0.0 <= stats["reward_pdf"] <= 1.0

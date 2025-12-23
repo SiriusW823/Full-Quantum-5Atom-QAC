@@ -24,7 +24,7 @@ class A2CConfig:
     lambda_repeat: float = 0.0
     ent_coef: float = 0.01
     reward_floor: float = 0.0
-    reward_clip_low: float = -0.05
+    reward_clip_low: float = 0.0
     reward_clip_high: float = 1.0
     sigma_min: float = 0.05
     sigma_max: float = 0.50

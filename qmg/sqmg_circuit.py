@@ -15,24 +15,22 @@ EDGE_LIST: List[Tuple[int, int]] = [(0, 1), (1, 2), (2, 3), (3, 4)]
 
 
 def _compute_none_flag(qc: QuantumCircuit, atom_qubits, anc_qubit) -> None:
-    """Compute anc_qubit = 1 iff atom code decodes to NONE.
+    """Compute anc_qubit = 1 iff atom code decodes to NONE (000).
 
     Decode mapping is fixed:
       000 -> NONE
       001 -> C
-      010 -> N
-      011 -> O
-      100..111 -> NONE
+      010 -> O
+      011 -> N
+      100 -> S
+      101 -> P
+      110 -> F
+      111 -> Cl
 
-    Therefore, "NONE" is equivalent to (atom == 000) OR (MSB == 1).
-
-    Required reversible logic (as specified):
+    Required reversible logic:
     - X on atom qubits (000 -> 111)
     - mcx with 3 controls -> ancilla
     - X back
-
-    Then additionally include the MSB==1 case (100..111) via a CNOT from the MSB to ancilla.
-    Since (atom==000) implies MSB==0, this acts like an OR without needing extra workspace.
 
     This routine is its own inverse, so calling it twice uncomputes.
     """
@@ -41,8 +39,6 @@ def _compute_none_flag(qc: QuantumCircuit, atom_qubits, anc_qubit) -> None:
     qc.mcx(list(atom_qubits), anc_qubit, mode="noancilla")
     for q in atom_qubits:
         qc.x(q)
-    # MSB is atom_qubits[2] (bitstring is read as q2 q1 q0 in Qiskit outputs)
-    qc.cx(atom_qubits[2], anc_qubit)
 
 
 def build_sqmg_hybrid_chain_circuit(
@@ -64,9 +60,12 @@ def build_sqmg_hybrid_chain_circuit(
     Atom 3-bit decode mapping (fixed):
       000 -> NONE
       001 -> C
-      010 -> N
-      011 -> O
-      100..111 -> NONE
+      010 -> O
+      011 -> N
+      100 -> S
+      101 -> P
+      110 -> F
+      111 -> Cl
 
     Bond 2-bit decode mapping (fixed):
       00 -> NONE

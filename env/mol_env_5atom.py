@@ -9,8 +9,8 @@ from rdkit.Chem import rdchem
 RDLogger.DisableLog("rdApp.*")
 
 # Vocabularies (exported)
-# Atom decode (3-bit): 000->NONE, 001->C, 010->N, 011->O, 100..111->NONE
-ATOM_VOCAB: List[str] = ["NONE", "C", "N", "O"]
+# Atom decode (3-bit): 000->NONE, 001->C, 010->O, 011->N, 100->S, 101->P, 110->F, 111->Cl
+ATOM_VOCAB: List[str] = ["NONE", "C", "O", "N", "S", "P", "F", "Cl"]
 # Bond decode (2-bit): 00->NONE, 01->SINGLE, 10->DOUBLE, 11->TRIPLE
 BOND_VOCAB: List[str] = ["NONE", "SINGLE", "DOUBLE", "TRIPLE"]
 
@@ -27,6 +27,23 @@ _BOND_TYPE_MAP = {
     "SINGLE": rdchem.BondType.SINGLE,
     "DOUBLE": rdchem.BondType.DOUBLE,
     "TRIPLE": rdchem.BondType.TRIPLE,
+}
+
+_BOND_ORDER = {
+    "NONE": 0,
+    "SINGLE": 1,
+    "DOUBLE": 2,
+    "TRIPLE": 3,
+}
+
+_VALENCE_MAX = {
+    "C": 4,
+    "N": 3,
+    "O": 2,
+    "S": 2,
+    "P": 3,
+    "F": 1,
+    "Cl": 1,
 }
 
 
@@ -56,13 +73,14 @@ class FiveAtomMolEnv:
       build_smiles_from_actions(atoms, bonds) -> (smiles|None, valid)
 
     Inputs:
-      - atoms: length 5, indices into ATOM_VOCAB
+      - atoms: length 5, indices into ATOM_VOCAB (NONE, C, O, N, S, P, F, Cl)
       - bonds: length 4, indices into BOND_VOCAB, aligned with EDGE_LIST
 
     Validity:
       - active_len = count(non-NONE atoms) must be >= 2
       - add only non-NONE atoms to RDKit
       - add only chain bonds where both endpoints exist and bond != NONE
+      - deterministic bond repair (downgrade order) to satisfy valence limits
       - sanitize, canonicalize
       - reject fragments if enforce_single_fragment=True (SMILES contains '.')
 
@@ -102,7 +120,7 @@ class FiveAtomMolEnv:
 
         try:
             atom_syms = [ATOM_VOCAB[a] for a in atoms]
-            bond_types = [_BOND_TYPE_MAP[BOND_VOCAB[b]] for b in bonds]
+            bond_names = [BOND_VOCAB[b] for b in bonds]
         except (IndexError, KeyError):
             return None, False
 
@@ -119,13 +137,43 @@ class FiveAtomMolEnv:
                     continue
                 site_to_rd[site_idx] = mol.AddAtom(Chem.Atom(sym))
 
-            for (i, j), bt in zip(EDGE_LIST, bond_types, strict=True):
-                if bt is None:
+            # deterministic bond repair: downgrade order if valence would be exceeded
+            bond_orders = []
+            for (i, j), name in zip(EDGE_LIST, bond_names, strict=True):
+                if atom_syms[i] == "NONE" or atom_syms[j] == "NONE":
+                    bond_orders.append(0)
+                else:
+                    bond_orders.append(_BOND_ORDER.get(name, 0))
+
+            valence_used = [0] * 5
+            for idx, (i, j) in enumerate(EDGE_LIST):
+                order = bond_orders[idx]
+                if order == 0:
+                    continue
+                max_i = _VALENCE_MAX.get(atom_syms[i], 4)
+                max_j = _VALENCE_MAX.get(atom_syms[j], 4)
+                while order > 0 and (
+                    valence_used[i] + order > max_i or valence_used[j] + order > max_j
+                ):
+                    order -= 1
+                bond_orders[idx] = order
+                if order > 0:
+                    valence_used[i] += order
+                    valence_used[j] += order
+
+            for (i, j), order in zip(EDGE_LIST, bond_orders, strict=True):
+                if order <= 0:
                     continue
                 a = site_to_rd[i]
                 b = site_to_rd[j]
                 if a is None or b is None:
                     continue
+                if order == 1:
+                    bt = rdchem.BondType.SINGLE
+                elif order == 2:
+                    bt = rdchem.BondType.DOUBLE
+                else:
+                    bt = rdchem.BondType.TRIPLE
                 mol.AddBond(a, b, bt)
 
             Chem.SanitizeMol(mol)
@@ -177,6 +225,7 @@ class FiveAtomMolEnv:
             "validity_pdf": validity_pdf,
             "uniqueness_pdf": uniqueness_pdf,
             "target_metric_pdf": target_metric_pdf,
+            "reward_pdf": target_metric_pdf,
         }
 
 

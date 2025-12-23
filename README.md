@@ -16,11 +16,13 @@ We use a fixed 5-site chain:
 - **Bonds**: 4 categorical decisions for a chain topology  
   `(0–1), (1–2), (2–3), (3–4)`
 
+If either endpoint atom is `NONE`, the corresponding bond is masked to `NONE`.
+
 ## Fixed vocabularies and decode maps
 
 **Atom vocabulary**
 ```python
-ATOM_VOCAB = ["NONE", "C", "N", "O"]
+ATOM_VOCAB = ["NONE", "C", "O", "N", "S", "P", "F", "Cl"]
 ```
 
 **Bond vocabulary**
@@ -31,9 +33,12 @@ BOND_VOCAB = ["NONE", "SINGLE", "DOUBLE", "TRIPLE"]
 **Atom 3-bit decode**
 - `000 -> NONE`
 - `001 -> C`
-- `010 -> N`
-- `011 -> O`
-- `100..111 -> NONE`
+- `010 -> O`
+- `011 -> N`
+- `100 -> S`
+- `101 -> P`
+- `110 -> F`
+- `111 -> Cl`
 
 **Bond 2-bit decode**
 - `00 -> NONE`
@@ -64,6 +69,8 @@ This matches the SQMG/QCNC spirit without classical control flow.
 - If active atoms `< 2` → invalid.
 - Add only non-`NONE` atoms.
 - Add a bond only when both endpoints exist and bond type is not `NONE`.
+- Deterministic bond repair: if a bond exceeds valence, it is downgraded
+  (TRIPLE→DOUBLE→SINGLE→NONE) until valid.
 - Sanitize + canonicalize SMILES.
 - Reject disconnected fragments if SMILES contains `"."`.
 
@@ -86,6 +93,10 @@ The optimized PDF-style composite is computed per batch:
 
 which simplifies to `unique_valid_count / samples`.
 
+The reward plotted by the one-command trainer is:
+
+`reward_step = validity_step * uniqueness_step`  (each in [0, 1]).
+
 ### State features (A2C)
 The state vector includes:
 
@@ -93,6 +104,21 @@ The state vector includes:
 - normalized counts (`valid_count/samples`, `unique_valid_count/samples`)
 - **novelty feature**: `log_unique = log1p(unique_valid_count) / log1p(samples)`
 - QMG weight statistics (`mean`, `std`, `L2`, `min`, `max`)
+
+## Installation (CPU / GPU)
+**Important**: Do not mix Qiskit major versions. Use the pinned requirements.
+
+CPU-only:
+```bash
+pip install -r requirements-cpu.txt
+pip install -r requirements-dev.txt
+```
+
+GPU (Aer GPU):
+```bash
+pip install -r requirements-gpu.txt
+pip install -r requirements-dev.txt
+```
 
 ## Quickstart
 ```bash
@@ -109,10 +135,22 @@ python -m scripts.train_qmg_qrl --algo a2c --steps 1000 --batch-size 256 --k-bat
 ## DGX Quickstart (one-command training)
 The one-command entrypoint trains QMG+QRL end-to-end and logs the **PDF-style reward**
 `validity_step * uniqueness_step` in the range `[0, 1]`, saving `metrics.csv` and
-`reward.png` under the output directory.
+`reward.png` under the output directory. GPU is auto-detected if available; otherwise
+the script falls back to CPU.
 
 ```bash
-python -m scripts.run_one_train --episodes 300 --batch-size 256 --out runs/dgx_run
+python -m scripts.run_one_train --episodes 300 --batch-size 256 --device auto --out runs/dgx_run
+```
+
+## Training presets
+Smoke test (fast):
+```bash
+python -m scripts.run_one_train --episodes 20 --batch-size 64 --device cpu --out /tmp/qmg_qrl_smoke
+```
+
+Best-effort long run:
+```bash
+python -m scripts.run_one_train --episodes 2000 --batch-size 256 --device auto --out runs/qmg_qrl_long --k-batches 3
 ```
 
 ## Notes

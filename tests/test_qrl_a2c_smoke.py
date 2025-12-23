@@ -31,7 +31,7 @@ def test_qrl_a2c_smoke():
         lambda_repeat=0.0,
         ent_coef=0.01,
         reward_floor=0.0,
-        reward_clip_low=-0.05,
+        reward_clip_low=0.0,
         reward_clip_high=1.0,
         sigma_min=0.05,
         sigma_max=0.5,

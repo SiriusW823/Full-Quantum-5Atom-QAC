@@ -61,6 +61,8 @@ def main() -> None:
             print(f"validity_pdf={s['validity_pdf']:.4f}")
             print(f"uniqueness_pdf={s['uniqueness_pdf']:.4f}")
             print(f"target_metric_pdf={s['target_metric_pdf']:.6f}")
+        if "reward_pdf" in s:
+            print(f"reward_pdf={s['reward_pdf']:.6f}")
 
     uniques = sorted(env.seen_smiles)[:10]
     print("Top unique SMILES (up to 10):")

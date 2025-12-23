@@ -14,6 +14,8 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import qiskit
+import qiskit_aer
 from qiskit import transpile
 from qiskit_aer import AerSimulator
 
@@ -60,8 +62,25 @@ def resolve_device(device: str, gpus: int) -> Tuple[str, int]:
     return ("gpu" if gpus > 0 else "cpu"), gpus
 
 
+def print_aer_info(selected_device: str) -> None:
+    try:
+        available = AerSimulator().available_devices()
+    except Exception:
+        available = []
+    print(f"[info] qiskit={qiskit.__version__} qiskit_aer={qiskit_aer.__version__}")
+    print(f"[info] AerSimulator.available_devices()={available}")
+    print(f"[info] selected_device={selected_device}")
+
+
 def create_aer_backend(seed: int | None, device: str, gpus: int) -> tuple[AerSimulator, bool]:
     if device != "gpu":
+        return AerSimulator(seed_simulator=seed), False
+    try:
+        available = AerSimulator().available_devices()
+    except Exception:
+        available = []
+    if "GPU" not in available:
+        print("[warn] Aer GPU not available, falling back to CPU.")
         return AerSimulator(seed_simulator=seed), False
     try:
         backend = AerSimulator(device="GPU", seed_simulator=seed)
@@ -105,7 +124,7 @@ def run_one_train(
     lambda_repeat: float = 0.0,
     ent_coef: float = 0.01,
     reward_floor: float = 0.0,
-    reward_clip_low: float = -0.05,
+    reward_clip_low: float = 0.0,
     reward_clip_high: float = 1.0,
     sigma_min: float = 0.05,
     sigma_max: float = 0.50,
@@ -125,6 +144,7 @@ def run_one_train(
     qmg = SQMGQiskitGenerator(atom_layers=atom_layers, bond_layers=bond_layers, seed=seed)
 
     resolved_device, detected_gpus = resolve_device(device, gpus)
+    print_aer_info(resolved_device)
     backend, using_gpu = create_aer_backend(seed, resolved_device, detected_gpus)
     configure_generator_backend(qmg, backend)
     if resolved_device == "gpu" and using_gpu:
@@ -277,7 +297,7 @@ def main() -> None:
     parser.add_argument("--lambda-repeat", type=float, default=0.0)
     parser.add_argument("--ent-coef", type=float, default=0.01)
     parser.add_argument("--reward-floor", type=float, default=0.0)
-    parser.add_argument("--reward-clip-low", type=float, default=-0.05)
+    parser.add_argument("--reward-clip-low", type=float, default=0.0)
     parser.add_argument("--reward-clip-high", type=float, default=1.0)
     parser.add_argument("--sigma-min", type=float, default=0.05)
     parser.add_argument("--sigma-max", type=float, default=0.50)
