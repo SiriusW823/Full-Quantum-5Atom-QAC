@@ -12,14 +12,18 @@ def test_run_one_train_smoke(tmp_path: Path) -> None:
         device="cpu",
         atom_layers=1,
         bond_layers=1,
+        eval_every=1,
+        eval_shots=16,
         log_every=1,
     )
 
     metrics_path = out_dir / "metrics.csv"
     plot_path = out_dir / "reward.png"
+    eval_path = out_dir / "eval.csv"
 
     assert metrics_path.exists()
     assert plot_path.exists()
+    assert eval_path.exists()
     assert rows
     for row in rows:
         reward_step = float(row["reward_step"])

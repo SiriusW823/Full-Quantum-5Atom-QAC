@@ -9,6 +9,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -160,6 +161,17 @@ def run_a2c(args: argparse.Namespace) -> None:
             track_best=args.track_best,
         )
 
+    out_dir = Path(args.out_dir) if args.out_dir else None
+    if out_dir is not None:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        eval_path = out_dir / "eval.csv"
+        if not eval_path.exists():
+            eval_path.write_text(
+                "episode,reward_pdf_eval,reward_raw_pdf_eval,validity_pdf_eval,uniqueness_pdf_eval,"
+                "validity_raw_pdf_eval,uniqueness_raw_pdf_eval\n"
+            )
+        best_json_path = out_dir / "best_eval.json"
+
     for step in range(1, args.steps + 1):
         state = build_state(qmg)
         result = a2c_step(
@@ -219,17 +231,50 @@ def run_a2c(args: argparse.Namespace) -> None:
             print("-" * 60)
 
         if args.eval_every > 0 and step % args.eval_every == 0:
-            eval_batch = qmg.sample_actions(batch_size=args.eval_batch_size)
-            eval_ds = args.eval_batch_size
-            eval_du = int(sum(1 for u in getattr(eval_batch, "uniques", []) if u))
-            eval_composite = eval_du / eval_ds if eval_ds else 0.0
+            weights_snapshot = qmg.get_weights()
+            eval_batch = qmg.sample_actions(batch_size=args.eval_shots)
             stats = qmg.env.stats()
+            reward_pdf_eval = stats["reward_pdf"]
+            reward_raw_pdf_eval = stats["reward_raw_pdf"]
+            validity_pdf_eval = stats["validity_pdf"]
+            uniqueness_pdf_eval = stats["uniqueness_pdf"]
+            validity_raw_pdf_eval = stats["validity_raw_pdf"]
+            uniqueness_raw_pdf_eval = stats["uniqueness_raw_pdf"]
             print(
-                f"[eval step {step}] samples={stats['samples']} eval_composite={eval_composite:.6f}"
+                f"[eval step {step}] reward_pdf_eval={reward_pdf_eval:.6f} "
+                f"reward_raw_pdf_eval={reward_raw_pdf_eval:.6f} "
+                f"validity_pdf_eval={validity_pdf_eval:.4f} "
+                f"uniqueness_pdf_eval={uniqueness_pdf_eval:.4f}"
             )
+            if out_dir is not None:
+                with (out_dir / "eval.csv").open("a", newline="") as handle:
+                    handle.write(
+                        f"{step},{reward_pdf_eval:.6f},{reward_raw_pdf_eval:.6f},"
+                        f"{validity_pdf_eval:.6f},{uniqueness_pdf_eval:.6f},"
+                        f"{validity_raw_pdf_eval:.6f},{uniqueness_raw_pdf_eval:.6f}\n"
+                    )
+
+                metric_for_best = reward_raw_pdf_eval if not args.repair_bonds else reward_pdf_eval
+                if cfg.best_weights is None or metric_for_best > cfg.best_reward_pdf:
+                    cfg.best_reward_pdf = metric_for_best
+                    cfg.best_weights = weights_snapshot.copy()
+                    best_json = {
+                        "episode": step,
+                        "reward_pdf_eval": reward_pdf_eval,
+                        "reward_raw_pdf_eval": reward_raw_pdf_eval,
+                        "validity_pdf_eval": validity_pdf_eval,
+                        "uniqueness_pdf_eval": uniqueness_pdf_eval,
+                        "validity_raw_pdf_eval": validity_raw_pdf_eval,
+                        "uniqueness_raw_pdf_eval": uniqueness_raw_pdf_eval,
+                        "metric_for_best": metric_for_best,
+                    }
+                    best_json_path.write_text(json.dumps(best_json, indent=2))
+                    np.save(out_dir / "best_weights.npy", cfg.best_weights)
+
+            qmg.set_weights(weights_snapshot)
             print("-" * 60)
 
-    if args.track_best and cfg.best_weights is not None:
+    if args.track_best and cfg.best_weights is not None and out_dir is None:
         out_path = Path("best_weights.npy")
         np.save(out_path, cfg.best_weights)
         print(f"Saved best weights to {out_path}")
@@ -276,8 +321,9 @@ def main():
     parser.add_argument("--bond-layers", type=int, default=1)
     parser.add_argument("--repair-bonds", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--track-best", action="store_true")
-    parser.add_argument("--eval-every", type=int, default=200)
-    parser.add_argument("--eval-batch-size", type=int, default=2000)
+    parser.add_argument("--eval-every", type=int, default=50)
+    parser.add_argument("--eval-shots", type=int, default=2000)
+    parser.add_argument("--out-dir", type=str, default="runs/a2c")
 
     args = parser.parse_args()
 

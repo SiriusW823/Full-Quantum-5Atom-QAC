@@ -75,8 +75,8 @@ This matches the SQMG/QCNC spirit without classical control flow.
 - Reject disconnected fragments if SMILES contains `"."`.
 
 ### repair_bonds option + raw metrics
-`FiveAtomMolEnv(repair_bonds=True)` enables deterministic bond repair for valence.
-When `repair_bonds=False`, no downgrading is applied.
+`FiveAtomMolEnv(repair_bonds=False)` is the strict PDF default (no repair).
+Enable deterministic bond repair with `repair_bonds=True` for engineering acceleration.
 
 Both raw and repaired PDF metrics are exposed:
 - `validity_raw_pdf`, `uniqueness_raw_pdf`, `reward_raw_pdf`
@@ -142,8 +142,8 @@ python -m pytest -q
 # sample molecules using SQMG
 python -m scripts.sample_qmg --mode sqmg --n 2000
 
-# train with quantum A2C (K-batch averaging)
-python -m scripts.train_qmg_qrl --algo a2c --steps 1000 --batch-size 256 --k-batches 2 --eval-every 100 --eval-batch-size 2000
+# train with quantum A2C (K-batch averaging + eval protocol)
+python -m scripts.train_qmg_qrl --algo a2c --steps 1000 --batch-size 256 --k-batches 2 --eval-every 50 --eval-shots 2000 --out-dir runs/a2c
 ```
 
 ## DGX Quickstart (one-command training)
@@ -153,7 +153,7 @@ The one-command entrypoint trains QMG+QRL end-to-end and logs the **PDF-style re
 the script falls back to CPU.
 
 ```bash
-python -m scripts.run_one_train --episodes 300 --batch-size 256 --device auto --out runs/dgx_run
+python -m scripts.run_one_train --episodes 300 --batch-size 256 --device auto --out runs/dgx_run --eval-every 50 --eval-shots 2000
 ```
 
 ## Training presets

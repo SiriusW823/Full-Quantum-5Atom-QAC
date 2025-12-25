@@ -96,7 +96,7 @@ class FiveAtomMolEnv:
       - counted only when valid and canonical SMILES is new
     """
 
-    def __init__(self, enforce_single_fragment: bool = True, repair_bonds: bool = True) -> None:
+    def __init__(self, enforce_single_fragment: bool = True, repair_bonds: bool = False) -> None:
         self.metrics = Metrics()
         self.samples = 0
         self.valid_count = 0

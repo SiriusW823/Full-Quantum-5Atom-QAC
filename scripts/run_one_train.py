@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import os
 import subprocess
 import sys
@@ -109,7 +110,7 @@ def run_one_train(
     seed: int = 123,
     atom_layers: int = 2,
     bond_layers: int = 1,
-    repair_bonds: bool = True,
+    repair_bonds: bool = False,
     actor_qubits: int = 8,
     actor_layers: int = 2,
     critic_qubits: int = 8,
@@ -136,6 +137,8 @@ def run_one_train(
     spsa_gamma: float = 0.101,
     log_every: int = 10,
     track_best: bool = False,
+    eval_every: int = 50,
+    eval_shots: int = 2000,
 ) -> List[Dict[str, float]]:
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
@@ -217,6 +220,14 @@ def run_one_train(
         "reward_used",
     ]
 
+    eval_path = out_path / "eval.csv"
+    if not eval_path.exists():
+        eval_path.write_text(
+            "episode,reward_pdf_eval,reward_raw_pdf_eval,validity_pdf_eval,uniqueness_pdf_eval,"
+            "validity_raw_pdf_eval,uniqueness_raw_pdf_eval\n"
+        )
+    best_json_path = out_path / "best_eval.json"
+
     with metrics_path.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
@@ -265,6 +276,49 @@ def run_one_train(
                     f"sigma={row['sigma']:.4f}"
                 )
 
+            if eval_every > 0 and ep % eval_every == 0:
+                weights_snapshot = qmg.get_weights()
+                _ = qmg.sample_actions(batch_size=eval_shots)
+                stats = qmg.env.stats()
+                reward_pdf_eval = stats["reward_pdf"]
+                reward_raw_pdf_eval = stats["reward_raw_pdf"]
+                validity_pdf_eval = stats["validity_pdf"]
+                uniqueness_pdf_eval = stats["uniqueness_pdf"]
+                validity_raw_pdf_eval = stats["validity_raw_pdf"]
+                uniqueness_raw_pdf_eval = stats["uniqueness_raw_pdf"]
+                print(
+                    f"[eval {ep}] reward_pdf_eval={reward_pdf_eval:.6f} "
+                    f"reward_raw_pdf_eval={reward_raw_pdf_eval:.6f} "
+                    f"validity_pdf_eval={validity_pdf_eval:.4f} "
+                    f"uniqueness_pdf_eval={uniqueness_pdf_eval:.4f}"
+                )
+                with eval_path.open("a", newline="") as handle:
+                    handle.write(
+                        f"{ep},{reward_pdf_eval:.6f},{reward_raw_pdf_eval:.6f},"
+                        f"{validity_pdf_eval:.6f},{uniqueness_pdf_eval:.6f},"
+                        f"{validity_raw_pdf_eval:.6f},{uniqueness_raw_pdf_eval:.6f}\n"
+                    )
+
+                if track_best:
+                    metric_for_best = reward_raw_pdf_eval if not repair_bonds else reward_pdf_eval
+                    if cfg.best_weights is None or metric_for_best > cfg.best_reward_pdf:
+                        cfg.best_reward_pdf = metric_for_best
+                        cfg.best_weights = weights_snapshot.copy()
+                        best_json = {
+                            "episode": ep,
+                            "reward_pdf_eval": reward_pdf_eval,
+                            "reward_raw_pdf_eval": reward_raw_pdf_eval,
+                            "validity_pdf_eval": validity_pdf_eval,
+                            "uniqueness_pdf_eval": uniqueness_pdf_eval,
+                            "validity_raw_pdf_eval": validity_raw_pdf_eval,
+                            "uniqueness_raw_pdf_eval": uniqueness_raw_pdf_eval,
+                            "metric_for_best": metric_for_best,
+                        }
+                        best_json_path.write_text(json.dumps(best_json, indent=2))
+                        np.save(out_path / "best_weights.npy", cfg.best_weights)
+
+                qmg.set_weights(weights_snapshot)
+
     rewards = [r["reward_step"] for r in rows]
     if rewards:
         plt.figure(figsize=(10, 4))
@@ -301,7 +355,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=123)
     parser.add_argument("--atom-layers", type=int, default=2)
     parser.add_argument("--bond-layers", type=int, default=1)
-    parser.add_argument("--repair-bonds", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--repair-bonds", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--actor-qubits", type=int, default=8)
     parser.add_argument("--actor-layers", type=int, default=2)
     parser.add_argument("--critic-qubits", type=int, default=8)
@@ -328,6 +382,8 @@ def main() -> None:
     parser.add_argument("--spsa-gamma", type=float, default=0.101)
     parser.add_argument("--log-every", type=int, default=10)
     parser.add_argument("--track-best", action="store_true")
+    parser.add_argument("--eval-every", type=int, default=50)
+    parser.add_argument("--eval-shots", type=int, default=2000)
 
     args = parser.parse_args()
     run_one_train(
@@ -366,6 +422,8 @@ def main() -> None:
         spsa_gamma=args.spsa_gamma,
         log_every=args.log_every,
         track_best=args.track_best,
+        eval_every=args.eval_every,
+        eval_shots=args.eval_shots,
     )
 
 
