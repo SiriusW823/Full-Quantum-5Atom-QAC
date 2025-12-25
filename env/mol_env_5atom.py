@@ -58,6 +58,8 @@ class Metrics:
     samples: int = 0
     valid_count: int = 0
     unique_valid_count: int = 0
+    raw_valid_count: int = 0
+    raw_unique_valid_count: int = 0
 
     @property
     def valid_ratio(self) -> float:
@@ -94,20 +96,27 @@ class FiveAtomMolEnv:
       - counted only when valid and canonical SMILES is new
     """
 
-    def __init__(self, enforce_single_fragment: bool = True) -> None:
+    def __init__(self, enforce_single_fragment: bool = True, repair_bonds: bool = True) -> None:
         self.metrics = Metrics()
         self.samples = 0
         self.valid_count = 0
         self.unique_valid_count = 0
+        self.raw_valid_count = 0
+        self.raw_unique_valid_count = 0
         self.enforce_single_fragment = enforce_single_fragment
+        self.repair_bonds = repair_bonds
         self.seen_smiles: Set[str] = set()
+        self.seen_smiles_raw: Set[str] = set()
 
     def reset(self) -> None:
         self.metrics = Metrics()
         self.samples = 0
         self.valid_count = 0
         self.unique_valid_count = 0
+        self.raw_valid_count = 0
+        self.raw_unique_valid_count = 0
         self.seen_smiles.clear()
+        self.seen_smiles_raw.clear()
 
     def is_unique(self, smiles: str) -> bool:
         if smiles in self.seen_smiles:
@@ -115,42 +124,30 @@ class FiveAtomMolEnv:
         self.seen_smiles.add(smiles)
         return True
 
-    def build_smiles_from_actions(
-        self, atoms: Sequence[int], bonds: Sequence[int]
+    def _is_unique_raw(self, smiles: str) -> bool:
+        if smiles in self.seen_smiles_raw:
+            return False
+        self.seen_smiles_raw.add(smiles)
+        return True
+
+    def _build_smiles(
+        self,
+        atom_syms: Sequence[str],
+        bond_names: Sequence[str],
+        repair_bonds: bool,
     ) -> Tuple[Optional[str], bool]:
-        self.metrics.samples += 1
-        self.samples = self.metrics.samples
-
-        if len(atoms) != 5 or len(bonds) != len(EDGE_LIST):
-            return None, False
-
-        try:
-            atom_syms = [ATOM_VOCAB[a] for a in atoms]
-            bond_names = [BOND_VOCAB[b] for b in bonds]
-        except (IndexError, KeyError):
-            return None, False
-
         active_sites = [i for i, sym in enumerate(atom_syms) if sym != "NONE"]
         if len(active_sites) < 2:
             return None, False
 
-        mol = Chem.RWMol()
-        site_to_rd: List[Optional[int]] = [None] * 5
+        bond_orders = []
+        for (i, j), name in zip(EDGE_LIST, bond_names, strict=True):
+            if atom_syms[i] == "NONE" or atom_syms[j] == "NONE":
+                bond_orders.append(0)
+            else:
+                bond_orders.append(_BOND_ORDER.get(name, 0))
 
-        try:
-            for site_idx, sym in enumerate(atom_syms):
-                if sym == "NONE":
-                    continue
-                site_to_rd[site_idx] = mol.AddAtom(Chem.Atom(sym))
-
-            # deterministic bond repair: downgrade order if valence would be exceeded
-            bond_orders = []
-            for (i, j), name in zip(EDGE_LIST, bond_names, strict=True):
-                if atom_syms[i] == "NONE" or atom_syms[j] == "NONE":
-                    bond_orders.append(0)
-                else:
-                    bond_orders.append(_BOND_ORDER.get(name, 0))
-
+        if repair_bonds:
             valence_used = [0] * 5
             for idx, (i, j) in enumerate(EDGE_LIST):
                 order = bond_orders[idx]
@@ -167,36 +164,74 @@ class FiveAtomMolEnv:
                     valence_used[i] += order
                     valence_used[j] += order
 
-            for (i, j), order in zip(EDGE_LIST, bond_orders, strict=True):
-                if order <= 0:
-                    continue
-                a = site_to_rd[i]
-                b = site_to_rd[j]
-                if a is None or b is None:
-                    continue
-                if order == 1:
-                    bt = rdchem.BondType.SINGLE
-                elif order == 2:
-                    bt = rdchem.BondType.DOUBLE
-                else:
-                    bt = rdchem.BondType.TRIPLE
-                mol.AddBond(a, b, bt)
+        mol = Chem.RWMol()
+        site_to_rd: List[Optional[int]] = [None] * 5
+        for site_idx, sym in enumerate(atom_syms):
+            if sym == "NONE":
+                continue
+            site_to_rd[site_idx] = mol.AddAtom(Chem.Atom(sym))
 
+        for (i, j), order in zip(EDGE_LIST, bond_orders, strict=True):
+            if order <= 0:
+                continue
+            a = site_to_rd[i]
+            b = site_to_rd[j]
+            if a is None or b is None:
+                continue
+            if order == 1:
+                bt = rdchem.BondType.SINGLE
+            elif order == 2:
+                bt = rdchem.BondType.DOUBLE
+            else:
+                bt = rdchem.BondType.TRIPLE
+            mol.AddBond(a, b, bt)
+
+        try:
             Chem.SanitizeMol(mol)
             smiles = Chem.MolToSmiles(mol, canonical=True)
+        except Exception:
+            return None, False
 
-            if self.enforce_single_fragment and "." in smiles:
-                return None, False
+        if self.enforce_single_fragment and "." in smiles:
+            return None, False
+        return smiles, True
 
+    def build_smiles_from_actions(
+        self, atoms: Sequence[int], bonds: Sequence[int]
+    ) -> Tuple[Optional[str], bool]:
+        self.metrics.samples += 1
+        self.samples = self.metrics.samples
+
+        if len(atoms) != 5 or len(bonds) != len(EDGE_LIST):
+            return None, False
+
+        try:
+            atom_syms = [ATOM_VOCAB[a] for a in atoms]
+            bond_names = [BOND_VOCAB[b] for b in bonds]
+        except (IndexError, KeyError):
+            return None, False
+
+        raw_smiles, raw_valid = self._build_smiles(atom_syms, bond_names, repair_bonds=False)
+        if raw_valid and raw_smiles:
+            self.metrics.raw_valid_count += 1
+            self.raw_valid_count = self.metrics.raw_valid_count
+            if self._is_unique_raw(raw_smiles):
+                self.metrics.raw_unique_valid_count += 1
+                self.raw_unique_valid_count = self.metrics.raw_unique_valid_count
+
+        if self.repair_bonds:
+            smiles, valid = self._build_smiles(atom_syms, bond_names, repair_bonds=True)
+        else:
+            smiles, valid = raw_smiles, raw_valid
+
+        if valid and smiles:
             self.metrics.valid_count += 1
             self.valid_count = self.metrics.valid_count
             if self.is_unique(smiles):
                 self.metrics.unique_valid_count += 1
                 self.unique_valid_count = self.metrics.unique_valid_count
 
-            return smiles, True
-        except Exception:
-            return None, False
+        return smiles, bool(valid)
 
     @property
     def valid_ratio(self) -> float:
@@ -218,9 +253,14 @@ class FiveAtomMolEnv:
         samples = int(getattr(self, "samples", 0) or 0)
         valid = int(getattr(self, "valid_count", 0) or 0)
         unique = int(getattr(self, "unique_valid_count", 0) or 0)
+        raw_valid = int(getattr(self, "raw_valid_count", 0) or 0)
+        raw_unique = int(getattr(self, "raw_unique_valid_count", 0) or 0)
         validity_pdf = valid / max(1, samples)
         uniqueness_pdf = unique / max(1, valid)
         target_metric_pdf = validity_pdf * uniqueness_pdf
+        validity_raw_pdf = raw_valid / max(1, samples)
+        uniqueness_raw_pdf = raw_unique / max(1, raw_valid)
+        target_metric_raw_pdf = validity_raw_pdf * uniqueness_raw_pdf
         return {
             "samples": samples,
             "valid_count": valid,
@@ -232,6 +272,10 @@ class FiveAtomMolEnv:
             "uniqueness_pdf": uniqueness_pdf,
             "target_metric_pdf": target_metric_pdf,
             "reward_pdf": target_metric_pdf,
+            "validity_raw_pdf": validity_raw_pdf,
+            "uniqueness_raw_pdf": uniqueness_raw_pdf,
+            "target_metric_raw_pdf": target_metric_raw_pdf,
+            "reward_raw_pdf": target_metric_raw_pdf,
         }
 
 

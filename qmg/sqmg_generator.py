@@ -39,12 +39,13 @@ class SQMGQiskitGenerator:
         self,
         atom_layers: int = 2,
         bond_layers: int = 1,
+        repair_bonds: bool = True,
         seed: int | None = None,
     ) -> None:
         self.atom_layers = int(atom_layers)
         self.bond_layers = int(bond_layers)
         self.rng = np.random.default_rng(seed)
-        self.env = FiveAtomMolEnv()
+        self.env = FiveAtomMolEnv(repair_bonds=repair_bonds)
 
         qc, params = build_sqmg_hybrid_chain_circuit(
             n_atoms=N_ATOMS, atom_layers=self.atom_layers, bond_layers=self.bond_layers

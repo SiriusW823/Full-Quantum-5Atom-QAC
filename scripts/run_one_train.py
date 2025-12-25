@@ -109,6 +109,7 @@ def run_one_train(
     seed: int = 123,
     atom_layers: int = 2,
     bond_layers: int = 1,
+    repair_bonds: bool = True,
     actor_qubits: int = 8,
     actor_layers: int = 2,
     critic_qubits: int = 8,
@@ -134,6 +135,7 @@ def run_one_train(
     spsa_alpha: float = 0.602,
     spsa_gamma: float = 0.101,
     log_every: int = 10,
+    track_best: bool = False,
 ) -> List[Dict[str, float]]:
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
@@ -141,7 +143,12 @@ def run_one_train(
     plot_path = out_path / "reward.png"
 
     rng = np.random.default_rng(seed)
-    qmg = SQMGQiskitGenerator(atom_layers=atom_layers, bond_layers=bond_layers, seed=seed)
+    qmg = SQMGQiskitGenerator(
+        atom_layers=atom_layers,
+        bond_layers=bond_layers,
+        repair_bonds=repair_bonds,
+        seed=seed,
+    )
 
     resolved_device, detected_gpus = resolve_device(device, gpus)
     print_aer_info(resolved_device)
@@ -193,6 +200,7 @@ def run_one_train(
         patience=patience,
         spsa_alpha=spsa_alpha,
         spsa_gamma=spsa_gamma,
+        track_best=track_best,
     )
 
     rows: List[Dict[str, float]] = []
@@ -239,6 +247,12 @@ def run_one_train(
                 "entropy": float(result.get("entropy", 0.0)),
                 "reward_used": float(result["reward"]),
             }
+            stats = qmg.env.stats()
+            if ep % log_every == 0 or ep == 1:
+                print(
+                    f"raw_vs_repair: raw_reward={stats['reward_raw_pdf']:.6f} "
+                    f"repaired_reward={stats['reward_pdf']:.6f}"
+                )
             writer.writerow(row)
             rows.append(row)
 
@@ -269,6 +283,11 @@ def run_one_train(
     print(f"Saved metrics to {metrics_path}")
     print(f"Saved reward plot to {plot_path}")
 
+    if track_best and cfg.best_weights is not None:
+        best_path = out_path / "best_weights.npy"
+        np.save(best_path, cfg.best_weights)
+        print(f"Saved best weights to {best_path}")
+
     return rows
 
 
@@ -282,6 +301,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=123)
     parser.add_argument("--atom-layers", type=int, default=2)
     parser.add_argument("--bond-layers", type=int, default=1)
+    parser.add_argument("--repair-bonds", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--actor-qubits", type=int, default=8)
     parser.add_argument("--actor-layers", type=int, default=2)
     parser.add_argument("--critic-qubits", type=int, default=8)
@@ -307,6 +327,7 @@ def main() -> None:
     parser.add_argument("--spsa-alpha", type=float, default=0.602)
     parser.add_argument("--spsa-gamma", type=float, default=0.101)
     parser.add_argument("--log-every", type=int, default=10)
+    parser.add_argument("--track-best", action="store_true")
 
     args = parser.parse_args()
     run_one_train(
@@ -318,6 +339,7 @@ def main() -> None:
         seed=args.seed,
         atom_layers=args.atom_layers,
         bond_layers=args.bond_layers,
+        repair_bonds=args.repair_bonds,
         actor_qubits=args.actor_qubits,
         actor_layers=args.actor_layers,
         critic_qubits=args.critic_qubits,
@@ -343,6 +365,7 @@ def main() -> None:
         spsa_alpha=args.spsa_alpha,
         spsa_gamma=args.spsa_gamma,
         log_every=args.log_every,
+        track_best=args.track_best,
     )
 
 

@@ -41,6 +41,9 @@ class A2CConfig:
     no_unique_steps: int = 0
     seen_valid_smiles: Set[str] = field(default_factory=set)
     reward_history: Deque[float] = field(default_factory=lambda: deque(maxlen=2))
+    track_best: bool = False
+    best_reward_pdf: float = 0.0
+    best_weights: Optional[np.ndarray] = None
 
 
 def _safe_stats(env) -> Dict[str, float]:
@@ -230,6 +233,10 @@ def a2c_step(
     reward_avg = float(np.mean(cfg.reward_history)) if cfg.reward_history else reward_step_mean
     reward = reward_step_mean
 
+    if cfg.track_best and reward_step > cfg.best_reward_pdf:
+        cfg.best_reward_pdf = float(reward_step)
+        cfg.best_weights = gen.get_weights()
+
     if unique_valid_in_batch == 0:
         cfg.no_unique_steps += 1
     else:
@@ -290,6 +297,7 @@ def a2c_step(
         "reward": float(reward),
         "reward_avg": float(reward_avg),
         "reward_step": float(reward_step),
+        "best_reward_pdf": float(cfg.best_reward_pdf),
         "reward_main": float(score_pdf_step),
         "repeat_penalty": float(cfg.lambda_repeat * repeat_step),
         "validity_step": float(validity_step),

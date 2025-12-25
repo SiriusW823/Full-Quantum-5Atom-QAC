@@ -112,6 +112,7 @@ def run_a2c(args: argparse.Namespace) -> None:
     qmg = SQMGQiskitGenerator(
         atom_layers=args.atom_layers,
         bond_layers=args.bond_layers,
+        repair_bonds=args.repair_bonds,
         seed=args.seed,
     )
 
@@ -135,7 +136,7 @@ def run_a2c(args: argparse.Namespace) -> None:
     proj = rng.normal(0.0, 1.0, size=(qmg.num_weights, args.action_dim))
     proj /= np.sqrt(args.action_dim)
 
-    cfg = A2CConfig(
+        cfg = A2CConfig(
         action_dim=args.action_dim,
         lr_theta=args.lr_theta,
         actor_a=args.actor_a,
@@ -154,9 +155,10 @@ def run_a2c(args: argparse.Namespace) -> None:
         sigma_boost=args.sigma_boost,
         sigma_decay=args.sigma_decay,
         patience=args.patience,
-        spsa_alpha=args.spsa_alpha,
-        spsa_gamma=args.spsa_gamma,
-    )
+            spsa_alpha=args.spsa_alpha,
+            spsa_gamma=args.spsa_gamma,
+            track_best=args.track_best,
+        )
 
     for step in range(1, args.steps + 1):
         state = build_state(qmg)
@@ -205,6 +207,11 @@ def run_a2c(args: argparse.Namespace) -> None:
                 f"target_metric_pdf={stats_pdf['target_metric_pdf']:.6f} "
                 f"reward_pdf={stats_pdf['reward_pdf']:.6f}"
             )
+            print(
+                f"raw_pdf: validity_raw={stats_pdf['validity_raw_pdf']:.4f} "
+                f"uniqueness_raw={stats_pdf['uniqueness_raw_pdf']:.4f} "
+                f"reward_raw={stats_pdf['reward_raw_pdf']:.6f}"
+            )
             uniques = sorted(qmg.env.seen_smiles)[:10]
             print("Top unique SMILES (up to 10):")
             for smi in uniques:
@@ -221,6 +228,11 @@ def run_a2c(args: argparse.Namespace) -> None:
                 f"[eval step {step}] samples={stats['samples']} eval_composite={eval_composite:.6f}"
             )
             print("-" * 60)
+
+    if args.track_best and cfg.best_weights is not None:
+        out_path = Path("best_weights.npy")
+        np.save(out_path, cfg.best_weights)
+        print(f"Saved best weights to {out_path}")
 
 
 def main():
@@ -262,6 +274,8 @@ def main():
     parser.add_argument("--critic-layers", type=int, default=2)
     parser.add_argument("--atom-layers", type=int, default=2)
     parser.add_argument("--bond-layers", type=int, default=1)
+    parser.add_argument("--repair-bonds", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--track-best", action="store_true")
     parser.add_argument("--eval-every", type=int, default=200)
     parser.add_argument("--eval-batch-size", type=int, default=2000)
 

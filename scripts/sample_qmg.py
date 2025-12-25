@@ -63,6 +63,8 @@ def main() -> None:
             print(f"target_metric_pdf={s['target_metric_pdf']:.6f}")
         if "reward_pdf" in s:
             print(f"reward_pdf={s['reward_pdf']:.6f}")
+        if "reward_raw_pdf" in s:
+            print(f"reward_raw_pdf={s['reward_raw_pdf']:.6f}")
 
     uniques = sorted(env.seen_smiles)[:10]
     print("Top unique SMILES (up to 10):")

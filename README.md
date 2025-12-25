@@ -74,12 +74,21 @@ This matches the SQMG/QCNC spirit without classical control flow.
 - Sanitize + canonicalize SMILES.
 - Reject disconnected fragments if SMILES contains `"."`.
 
+### repair_bonds option + raw metrics
+`FiveAtomMolEnv(repair_bonds=True)` enables deterministic bond repair for valence.
+When `repair_bonds=False`, no downgrading is applied.
+
+Both raw and repaired PDF metrics are exposed:
+- `validity_raw_pdf`, `uniqueness_raw_pdf`, `reward_raw_pdf`
+- `validity_pdf`, `uniqueness_pdf`, `reward_pdf`
+
 ## Quantum A2C (QRL)
 The A2C loop uses **PQC actor/critic** models (no classical BO), trained with SPSA schedules. The reward is step-local and PDF-aligned:
 
 `score_pdf_step = (valid_count / samples) * (unique_valid_in_batch / max(valid_count, 1))`
 
 with a mild repeat penalty and a small novelty bonus for exploration. A short reward window smooths variance.
+`k_batches` controls reward smoothing (larger values reduce noise).
 
 - **Actor**: PQC outputs a mean vector `mu` for a Gaussian policy (action_dim=16).
 - **Critic**: PQC outputs a scalar value `V(s)` mapped to `[0, 1]`.
@@ -156,6 +165,18 @@ python -m scripts.run_one_train --episodes 20 --batch-size 64 --device cpu --out
 Best-effort long run:
 ```bash
 python -m scripts.run_one_train --episodes 2000 --batch-size 256 --device auto --out runs/qmg_qrl_long --k-batches 2
+```
+
+## Environment cleanup (SSH)
+```bash
+rm -rf ~/Full-Quantum-5Atom-QAC
+conda deactivate
+conda env remove -n qrl_fq_5atom_gpu -y
+conda create -n qrl_fq_5atom_gpu python=3.10 -y
+conda activate qrl_fq_5atom_gpu
+git clone git@github.com:SiriusW823/Full-Quantum-5Atom-QAC.git
+cd Full-Quantum-5Atom-QAC
+pip install -r requirements-gpu.txt
 ```
 
 ## Notes
