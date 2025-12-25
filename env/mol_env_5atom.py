@@ -14,11 +14,17 @@ ATOM_VOCAB: List[str] = ["NONE", "C", "O", "N", "S", "P", "F", "Cl"]
 # Bond decode (2-bit): 00->NONE, 01->SINGLE, 10->DOUBLE, 11->TRIPLE
 BOND_VOCAB: List[str] = ["NONE", "SINGLE", "DOUBLE", "TRIPLE"]
 
-# Chain edges for N=5, deterministic order.
+# Fully connected edges for N=5, deterministic order (i < j).
 EDGE_LIST: List[Tuple[int, int]] = [
     (0, 1),
+    (0, 2),
+    (0, 3),
+    (0, 4),
     (1, 2),
+    (1, 3),
+    (1, 4),
     (2, 3),
+    (2, 4),
     (3, 4),
 ]
 
@@ -67,19 +73,19 @@ class Metrics:
 
 
 class FiveAtomMolEnv:
-    """Classical RDKit environment for 5 sites with optional NONE atoms and chain bonds.
+    """Classical RDKit environment for 5 sites with optional NONE atoms and full-graph bonds.
 
     API:
       build_smiles_from_actions(atoms, bonds) -> (smiles|None, valid)
 
     Inputs:
       - atoms: length 5, indices into ATOM_VOCAB (NONE, C, O, N, S, P, F, Cl)
-      - bonds: length 4, indices into BOND_VOCAB, aligned with EDGE_LIST
+      - bonds: length 10, indices into BOND_VOCAB, aligned with EDGE_LIST
 
     Validity:
       - active_len = count(non-NONE atoms) must be >= 2
       - add only non-NONE atoms to RDKit
-      - add only chain bonds where both endpoints exist and bond != NONE
+      - add only bonds where both endpoints exist and bond != NONE
       - deterministic bond repair (downgrade order) to satisfy valence limits
       - sanitize, canonicalize
       - reject fragments if enforce_single_fragment=True (SMILES contains '.')

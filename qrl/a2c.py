@@ -19,18 +19,18 @@ class A2CConfig:
     critic_c: float = 0.01
     spsa_alpha: float = 0.602
     spsa_gamma: float = 0.101
-    k_batches: int = 1
+    k_batches: int = 2
     beta_novelty: float = 0.0
     lambda_repeat: float = 0.0
     ent_coef: float = 0.01
     reward_floor: float = 0.0
     reward_clip_low: float = 0.0
     reward_clip_high: float = 1.0
-    sigma_min: float = 0.05
-    sigma_max: float = 0.50
+    sigma_min: float = 0.1
+    sigma_max: float = 1.0
     sigma_boost: float = 1.25
-    sigma_decay: float = 0.995
-    patience: int = 25
+    sigma_decay: float = 0.997
+    patience: int = 50
     sigma_current: Optional[float] = None
     reward_ema_beta: float = 0.99
     reward_ema: float = 0.0
@@ -40,7 +40,7 @@ class A2CConfig:
     adv_m2: float = 0.0
     no_unique_steps: int = 0
     seen_valid_smiles: Set[str] = field(default_factory=set)
-    reward_history: Deque[float] = field(default_factory=lambda: deque(maxlen=1))
+    reward_history: Deque[float] = field(default_factory=lambda: deque(maxlen=2))
 
 
 def _safe_stats(env) -> Dict[str, float]:

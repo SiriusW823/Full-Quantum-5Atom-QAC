@@ -10,8 +10,19 @@ N_ATOMS = 5
 ATOM_Q = 3
 BOND_Q = 2
 
-# PDF chain bonds only (not full-graph)
-EDGE_LIST: List[Tuple[int, int]] = [(0, 1), (1, 2), (2, 3), (3, 4)]
+# PDF full-graph bonds (i < j)
+EDGE_LIST: List[Tuple[int, int]] = [
+    (0, 1),
+    (0, 2),
+    (0, 3),
+    (0, 4),
+    (1, 2),
+    (1, 3),
+    (1, 4),
+    (2, 3),
+    (2, 4),
+    (3, 4),
+]
 
 
 def _compute_none_flag(qc: QuantumCircuit, atom_qubits, anc_qubit) -> None:
@@ -46,11 +57,11 @@ def build_sqmg_hybrid_chain_circuit(
     atom_layers: int = 2,
     bond_layers: int = 1,
 ) -> Tuple[QuantumCircuit, List[Parameter]]:
-    """Build SQMG/QCNC-style hybrid QMG for a 5-site chain with in-circuit quantum masking.
+    """Build SQMG/QCNC-style hybrid QMG for a 5-site full-graph with in-circuit quantum masking.
 
     Core architecture (PDF spirit):
     - Atom registers: 5 independent blocks × 3 qubits = 15 qubits (no reuse)
-    - Bond register: 2 qubits reused across 4 chain bonds with reset/measure/reset
+    - Bond register: 2 qubits reused across 10 edges with reset/measure/reset
     - Ancillas: 2 qubits used to compute (atom_i == 000) and (atom_{i+1} == 000) reversibly
 
     IMPORTANT: No classical feedforward is used (no if_test/c_if). The PDF conditional bond
@@ -75,8 +86,8 @@ def build_sqmg_hybrid_chain_circuit(
 
     Measurements / classical bits:
       atoms: 5×3 = 15 bits (ca0..ca4)
-      bonds: 4×2 = 8 bits  (cb0..cb3)
-      total: 23 bits
+      bonds: 10×2 = 20 bits  (cb0..cb9)
+      total: 35 bits
     """
     assert n_atoms == N_ATOMS, "This project is fixed to N=5"
 
@@ -89,7 +100,7 @@ def build_sqmg_hybrid_chain_circuit(
 
     # 5 atom classical registers (3 bits each)
     c_atoms = [ClassicalRegister(ATOM_Q, f"ca{i}") for i in range(n_atoms)]
-    # 4 bond classical registers (2 bits each) for chain edges
+    # bond classical registers (2 bits each) for full-graph edges
     c_bonds = [ClassicalRegister(BOND_Q, f"cb{i}") for i in range(len(EDGE_LIST))]
 
     qc = QuantumCircuit(*q_atoms, q_bond, q_anc, *c_atoms, *c_bonds)

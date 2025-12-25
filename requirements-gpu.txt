@@ -1,5 +1,7 @@
 numpy==1.26.4
 matplotlib==3.8.3
 rdkit-pypi==2022.9.5
-qiskit==1.1.1
-qiskit-aer-gpu==0.15.1
+gymnasium==0.29.1
+pandas>=2.3.3
+qiskit==0.46.0
+qiskit-aer-gpu==0.13.3

@@ -1,6 +1,6 @@
 import numpy as np
 
-from env import ATOM_VOCAB, BOND_VOCAB
+from env import ATOM_VOCAB, BOND_VOCAB, EDGE_LIST
 from qmg.sqmg_generator import SQMGQiskitGenerator
 
 
@@ -9,7 +9,7 @@ def test_sqmg_sampling_smoke():
     batch = gen.sample_actions(batch_size=10)
 
     assert batch.atoms.shape == (10, 5)
-    assert batch.bonds.shape == (10, 4)
+    assert batch.bonds.shape == (10, len(EDGE_LIST))
     assert len(batch.smiles) == 10
     assert len(batch.valids) == 10
     assert len(batch.uniques) == 10

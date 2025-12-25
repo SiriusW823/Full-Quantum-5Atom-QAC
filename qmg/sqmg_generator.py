@@ -29,7 +29,7 @@ class SQMGQiskitGenerator:
     """PDF-like SQMG/QCNC generator (3N+2 qubits) using AerSimulator.
 
     Version (dynamic, in-circuit masking):
-    - Chain bonds only: 4 edges for N=5, aligned with EDGE_LIST
+    - Full-graph bonds: 10 edges for N=5, aligned with EDGE_LIST
     - No classical feedforward (no if_test/c_if)
     - PDF conditional bond behavior is implemented *inside the circuit* via quantum-controlled
       masking (bond ansatz only applies when both endpoint atom codes are not 000).

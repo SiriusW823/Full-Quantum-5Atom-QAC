@@ -119,18 +119,18 @@ def run_one_train(
     actor_c: float = 0.01,
     critic_a: float = 0.05,
     critic_c: float = 0.01,
-    k_batches: int = 1,
+    k_batches: int = 2,
     beta_novelty: float = 0.0,
     lambda_repeat: float = 0.0,
     ent_coef: float = 0.01,
     reward_floor: float = 0.0,
     reward_clip_low: float = 0.0,
     reward_clip_high: float = 1.0,
-    sigma_min: float = 0.05,
-    sigma_max: float = 0.50,
+    sigma_min: float = 0.1,
+    sigma_max: float = 1.0,
     sigma_boost: float = 1.25,
-    sigma_decay: float = 0.995,
-    patience: int = 25,
+    sigma_decay: float = 0.997,
+    patience: int = 50,
     spsa_alpha: float = 0.602,
     spsa_gamma: float = 0.101,
     log_every: int = 10,
@@ -292,18 +292,18 @@ def main() -> None:
     parser.add_argument("--actor-c", type=float, default=0.01)
     parser.add_argument("--critic-a", type=float, default=0.05)
     parser.add_argument("--critic-c", type=float, default=0.01)
-    parser.add_argument("--k-batches", type=int, default=1)
+    parser.add_argument("--k-batches", type=int, default=2)
     parser.add_argument("--beta-novelty", type=float, default=0.0)
     parser.add_argument("--lambda-repeat", type=float, default=0.0)
     parser.add_argument("--ent-coef", type=float, default=0.01)
     parser.add_argument("--reward-floor", type=float, default=0.0)
     parser.add_argument("--reward-clip-low", type=float, default=0.0)
     parser.add_argument("--reward-clip-high", type=float, default=1.0)
-    parser.add_argument("--sigma-min", type=float, default=0.05)
-    parser.add_argument("--sigma-max", type=float, default=0.50)
+    parser.add_argument("--sigma-min", type=float, default=0.1)
+    parser.add_argument("--sigma-max", type=float, default=1.0)
     parser.add_argument("--sigma-boost", type=float, default=1.25)
-    parser.add_argument("--sigma-decay", type=float, default=0.995)
-    parser.add_argument("--patience", type=int, default=25)
+    parser.add_argument("--sigma-decay", type=float, default=0.997)
+    parser.add_argument("--patience", type=int, default=50)
     parser.add_argument("--spsa-alpha", type=float, default=0.602)
     parser.add_argument("--spsa-gamma", type=float, default=0.101)
     parser.add_argument("--log-every", type=int, default=10)

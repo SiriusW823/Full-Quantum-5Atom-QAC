@@ -9,12 +9,12 @@ Validity is defined by RDKit sanitization; uniqueness is tracked via canonical S
 ## Classical BO vs Quantum RL
 The reference PDF discusses classical Bayesian Optimization (BO) for parameter search. This repo **does not use BO** for training. Instead, it uses a **quantum A2C (actor–critic)** setup with PQC-based actor and critic to directly optimize **Validity × Uniqueness**.
 
-## Representation (N = 5 chain)
-We use a fixed 5-site chain:
+## Representation (N = 5, full graph)
+We use a fixed 5-site representation:
 
 - **Atoms**: 5 categorical decisions (one per site)
-- **Bonds**: 4 categorical decisions for a chain topology  
-  `(0–1), (1–2), (2–3), (3–4)`
+- **Bonds**: 10 categorical decisions for the fully connected graph:
+  `(0–1), (0–2), (0–3), (0–4), (1–2), (1–3), (1–4), (2–3), (2–4), (3–4)`
 
 If either endpoint atom is `NONE`, the corresponding bond is masked to `NONE`.
 
@@ -50,7 +50,7 @@ BOND_VOCAB = ["NONE", "SINGLE", "DOUBLE", "TRIPLE"]
 SQMG follows a dynamic circuit design with **bond-qubit reuse**:
 
 - **Atom blocks**: 5 independent 3-qubit PQC blocks (15 qubits total), measured to 3-bit atom codes.
-- **Bond register**: 2 qubits reused across the 4 chain bonds.
+- **Bond register**: 2 qubits reused across the 10 full-graph edges.
 - **Dynamic steps** per bond: `reset → bond module → measure → reset`.
 
 ### In-circuit quantum-controlled masking (no classical feedforward)
@@ -108,7 +108,7 @@ The state vector includes:
 ## Installation (CPU / GPU)
 **Important**: Do not mix Qiskit major versions. Use the pinned requirements.
 
-CPU-only:
+CPU-only (Qiskit 0.46.x + Aer 0.13.x):
 ```bash
 pip install -r requirements-cpu.txt
 pip install -r requirements-dev.txt
@@ -120,6 +120,11 @@ pip install -r requirements-gpu.txt
 pip install -r requirements-dev.txt
 ```
 
+Optional analysis:
+```bash
+pip install \"pandas>=2.3.3\"
+```
+
 ## Quickstart
 ```bash
 # run tests
@@ -129,7 +134,7 @@ python -m pytest -q
 python -m scripts.sample_qmg --mode sqmg --n 2000
 
 # train with quantum A2C (K-batch averaging)
-python -m scripts.train_qmg_qrl --algo a2c --steps 1000 --batch-size 256 --k-batches 3 --eval-every 100 --eval-batch-size 2000
+python -m scripts.train_qmg_qrl --algo a2c --steps 1000 --batch-size 256 --k-batches 2 --eval-every 100 --eval-batch-size 2000
 ```
 
 ## DGX Quickstart (one-command training)
@@ -150,7 +155,7 @@ python -m scripts.run_one_train --episodes 20 --batch-size 64 --device cpu --out
 
 Best-effort long run:
 ```bash
-python -m scripts.run_one_train --episodes 2000 --batch-size 256 --device auto --out runs/qmg_qrl_long --k-batches 3
+python -m scripts.run_one_train --episodes 2000 --batch-size 256 --device auto --out runs/qmg_qrl_long --k-batches 2
 ```
 
 ## Notes

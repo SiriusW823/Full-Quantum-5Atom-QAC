@@ -2,8 +2,8 @@
 Joint training of Qiskit QMG generator and QRL helper.
 
 Usage:
-    python -m scripts.train_qmg_qrl --steps 2000 --batch-size 64
-    python -m scripts.train_qmg_qrl --algo a2c --steps 200 --batch-size 256
+    python -m scripts.train_qmg_qrl --steps 5000 --batch-size 256
+    python -m scripts.train_qmg_qrl --algo a2c --steps 5000 --batch-size 256
 """
 
 from __future__ import annotations
@@ -226,8 +226,8 @@ def run_a2c(args: argparse.Namespace) -> None:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--algo", choices=["helper", "a2c"], default="helper")
-    parser.add_argument("--steps", type=int, default=2000)
-    parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument("--steps", type=int, default=5000)
+    parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--alpha", type=float, default=0.5, help="weight on qrl score for unique")
     parser.add_argument("--qmg-lr", type=float, default=0.05)
     parser.add_argument("--qmg-eps", type=float, default=0.1)
@@ -242,18 +242,18 @@ def main():
     parser.add_argument("--actor-c", type=float, default=0.01)
     parser.add_argument("--critic-a", type=float, default=0.05)
     parser.add_argument("--critic-c", type=float, default=0.01)
-    parser.add_argument("--k-batches", type=int, default=1)
+    parser.add_argument("--k-batches", type=int, default=2)
     parser.add_argument("--beta-novelty", type=float, default=0.0)
     parser.add_argument("--lambda-repeat", type=float, default=0.0)
     parser.add_argument("--ent-coef", type=float, default=0.01)
     parser.add_argument("--reward-floor", type=float, default=0.0)
     parser.add_argument("--reward-clip-low", type=float, default=0.0)
     parser.add_argument("--reward-clip-high", type=float, default=1.0)
-    parser.add_argument("--sigma-min", type=float, default=0.05)
-    parser.add_argument("--sigma-max", type=float, default=0.50)
+    parser.add_argument("--sigma-min", type=float, default=0.1)
+    parser.add_argument("--sigma-max", type=float, default=1.0)
     parser.add_argument("--sigma-boost", type=float, default=1.5)
-    parser.add_argument("--sigma-decay", type=float, default=0.995)
-    parser.add_argument("--patience", type=int, default=5)
+    parser.add_argument("--sigma-decay", type=float, default=0.997)
+    parser.add_argument("--patience", type=int, default=50)
     parser.add_argument("--spsa-alpha", type=float, default=0.602)
     parser.add_argument("--spsa-gamma", type=float, default=0.101)
     parser.add_argument("--actor-qubits", type=int, default=8)
