@@ -7,8 +7,7 @@ try:
 except Exception:  # pragma: no cover - optional dependency
     cudaq = None
 
-from env import EDGE_LIST
-
+# Constants are kept for reference only. Do not use them inside kernels.
 N_ATOMS = 5
 ATOM_Q = 3
 BOND_Q = 2
@@ -31,34 +30,51 @@ def build_sqmg_cudaq_kernel(
     if cudaq is None:
         raise RuntimeError("cudaq is not available")
 
-    num_atom_params = N_ATOMS * atom_layers * ATOM_Q * 2
-    num_bond_params = bond_layers * BOND_Q * 2
+    n_atoms = 5
+    atom_q = 3
+    bond_q = 2
+    anc_q = 2
+    edges = (
+        (0, 1),
+        (0, 2),
+        (0, 3),
+        (0, 4),
+        (1, 2),
+        (1, 3),
+        (1, 4),
+        (2, 3),
+        (2, 4),
+        (3, 4),
+    )
+
+    num_atom_params = n_atoms * atom_layers * atom_q * 2
+    num_bond_params = bond_layers * bond_q * 2
     num_params = num_atom_params + num_bond_params
 
     @cudaq.kernel
     def kernel(params: List[float]):
-        q = cudaq.qvector(N_ATOMS * ATOM_Q + BOND_Q + ANC_Q)
-        bond_start = N_ATOMS * ATOM_Q
-        anc_start = bond_start + BOND_Q
+        q = cudaq.qvector(n_atoms * atom_q + bond_q + anc_q)
+        bond_start = n_atoms * atom_q
+        anc_start = bond_start + bond_q
 
         p = 0
-        for atom_idx in range(N_ATOMS):
-            base = atom_idx * ATOM_Q
+        for atom_idx in range(n_atoms):
+            base = atom_idx * atom_q
             for _ in range(atom_layers):
-                for off in range(ATOM_Q):
+                for off in range(atom_q):
                     cudaq.ry(params[p], q[base + off])
                     cudaq.rz(params[p + 1], q[base + off])
                     p += 2
                 cudaq.x.ctrl(q[base], q[base + 1])
                 cudaq.x.ctrl(q[base + 1], q[base + 2])
 
-        for edge_idx, (i, j) in enumerate(EDGE_LIST):
+        for i, j in edges:
             # reset bond qubits
             cudaq.reset(q[bond_start + 0])
             cudaq.reset(q[bond_start + 1])
 
-            atom_i = [i * ATOM_Q + 0, i * ATOM_Q + 1, i * ATOM_Q + 2]
-            atom_j = [j * ATOM_Q + 0, j * ATOM_Q + 1, j * ATOM_Q + 2]
+            atom_i = [i * atom_q + 0, i * atom_q + 1, i * atom_q + 2]
+            atom_j = [j * atom_q + 0, j * atom_q + 1, j * atom_q + 2]
 
             _compute_none_flag(q, atom_i, anc_start + 0)
             _compute_none_flag(q, atom_j, anc_start + 1)
@@ -69,7 +85,7 @@ def build_sqmg_cudaq_kernel(
 
             bp = num_atom_params
             for _ in range(bond_layers):
-                for bq in range(BOND_Q):
+                for bq in range(bond_q):
                     cudaq.ry.ctrl(
                         [q[anc_start + 0], q[anc_start + 1]],
                         q[bond_start + bq],
@@ -97,7 +113,7 @@ def build_sqmg_cudaq_kernel(
             cudaq.measure(q[bond_start + 1])
 
         # measure atoms (15 bits)
-        for idx in range(N_ATOMS * ATOM_Q):
+        for idx in range(n_atoms * atom_q):
             cudaq.measure(q[idx])
 
     return kernel, num_params
