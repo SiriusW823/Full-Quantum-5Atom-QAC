@@ -5,7 +5,7 @@ from typing import List, Tuple
 try:
     import cudaq
     from cudaq import mz, reset, rx, ry, rz, x
-except Exception:  # pragma: no cover - optional dependency
+except ImportError:  # pragma: no cover - optional dependency
     cudaq = None
     mz = reset = rx = ry = rz = x = None
 

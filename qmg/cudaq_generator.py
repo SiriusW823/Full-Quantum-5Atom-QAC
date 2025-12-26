@@ -2,16 +2,19 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple
 
+import logging
 import numpy as np
 
 try:
     import cudaq
-except Exception:  # pragma: no cover - optional dependency
+except ImportError:  # pragma: no cover - optional dependency
     cudaq = None
 
 from env import ATOM_VOCAB, BOND_VOCAB, EDGE_LIST, FiveAtomMolEnv
 from qmg.cudaq_kernel import build_sqmg_cudaq_kernel
 from qmg.generator import SampledBatch
+
+logger = logging.getLogger(__name__)
 
 
 def _set_cudaq_target(device: str) -> str:
@@ -77,6 +80,11 @@ class CudaQMGGenerator:
 
         _set_cudaq_seed(seed)
         self.target = _set_cudaq_target(device)
+        logger.debug(
+            "cudaq_version=%s target=%s",
+            getattr(cudaq, "__version__", "unknown"),
+            self.target,
+        )
 
     @property
     def num_weights(self) -> int:

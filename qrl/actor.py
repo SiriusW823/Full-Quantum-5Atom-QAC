@@ -15,7 +15,7 @@ from qiskit.quantum_info import Statevector
 try:  # optional CUDA-Q backend
     import cudaq
     from cudaq import mz, ry, rz, x
-except Exception:  # pragma: no cover - optional dependency
+except ImportError:  # pragma: no cover - optional dependency
     cudaq = None
     mz = ry = rz = x = None
 
