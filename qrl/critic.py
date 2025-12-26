@@ -139,7 +139,7 @@ class CudaQQuantumCritic:
     def forward(self, state: np.ndarray) -> float:
         angles = _state_to_angles(state, self.n_qubits)
         counts = cudaq.sample(
-            self.kernel, angles.tolist(), self.weights.tolist(), shots=self.shots
+            self.kernel, angles.tolist(), self.weights.tolist(), shots_count=self.shots
         )
         count_map = counts.counts() if hasattr(counts, "counts") else counts
         z = _z_expectations_from_counts(count_map, self.n_qubits, self.shots)

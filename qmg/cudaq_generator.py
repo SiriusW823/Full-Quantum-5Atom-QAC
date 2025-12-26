@@ -122,7 +122,7 @@ class CudaQMGGenerator:
         return atom_ids, bond_ids
 
     def sample_actions(self, batch_size: int = 1) -> SampledBatch:
-        counts = cudaq.sample(self.kernel, self.weights.tolist(), shots=batch_size)
+        counts = cudaq.sample(self.kernel, self.weights.tolist(), shots_count=batch_size)
         if hasattr(counts, "counts"):
             count_map = counts.counts()
         else:

@@ -324,3 +324,5 @@ rm -rf Full-Quantum-5Atom-QAC
 
 This project is released under the **MIT License**.
 
+
+CUDA-Q API note: CUDA-Q uses shots_count as the sampling keyword; CLI flags like --eval-shots map to shots_count internally.

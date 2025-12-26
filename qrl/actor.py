@@ -17,6 +17,7 @@ try:  # optional CUDA-Q backend
 except Exception:  # pragma: no cover - optional dependency
     cudaq = None
 
+
 def _state_to_angles(state: np.ndarray, n_qubits: int) -> np.ndarray:
     state = np.asarray(state, dtype=float).flatten()
     if state.size == 0:
@@ -215,7 +216,7 @@ class CudaQQuantumActor:
     def forward(self, state: np.ndarray) -> Tuple[np.ndarray, float]:
         angles = _state_to_angles(state, self.n_qubits)
         counts = cudaq.sample(
-            self.kernel, angles.tolist(), self.weights.tolist(), shots=self.shots
+            self.kernel, angles.tolist(), self.weights.tolist(), shots_count=self.shots
         )
         count_map = counts.counts() if hasattr(counts, "counts") else counts
         z = _z_expectations_from_counts(count_map, self.n_qubits, self.shots)
