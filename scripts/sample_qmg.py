@@ -29,6 +29,7 @@ def main() -> None:
     parser.add_argument("--backend", choices=["qiskit", "cudaq"], default="qiskit")
     parser.add_argument("--atom-layers", type=int, default=2)
     parser.add_argument("--bond-layers", type=int, default=1)
+    parser.add_argument("--repair-bonds", action=argparse.BooleanOptionalAction, default=False)
     args = parser.parse_args()
 
     if args.mode == "sqmg":
@@ -40,14 +41,18 @@ def main() -> None:
             gen = CudaQMGGenerator(
                 atom_layers=args.atom_layers,
                 bond_layers=args.bond_layers,
+                repair_bonds=args.repair_bonds,
             )
         else:
             gen = SQMGQiskitGenerator(
                 atom_layers=args.atom_layers,
                 bond_layers=args.bond_layers,
+                repair_bonds=args.repair_bonds,
             )
     else:
         gen = QiskitQMGGenerator()
+        if hasattr(gen, "env"):
+            gen.env.repair_bonds = args.repair_bonds
 
     batch = gen.sample_actions(batch_size=args.n)
 
@@ -59,6 +64,7 @@ def main() -> None:
     if args.mode == "sqmg":
         # SQMG uses Aer memory with 1 shot == 1 sampled molecule in this script.
         print(f"shots={args.n} atom_layers={args.atom_layers} bond_layers={args.bond_layers}")
+    print(f"repair_bonds={getattr(env, 'repair_bonds', False)}")
 
     s = env.stats() if hasattr(env, "stats") else {}
     if s:
