@@ -12,16 +12,14 @@ from qiskit.quantum_info import Statevector
 
 from qrl.actor import _state_to_angles, _z_expectations_from_statevector, _z_expectations_from_counts
 
-try:  # optional CUDA-Q backend
-    import cudaq as _cudaq
-    from cudaq import mz, ry, rz, x
-except ImportError:  # pragma: no cover - optional dependency
-    cudaq = None
-    mz = ry = rz = x = None
-except Exception as exc:  # pragma: no cover - surface real import errors
-    raise RuntimeError(f"cudaq import failed: {exc}") from exc
-else:
-    cudaq = _cudaq
+import importlib
+
+
+def _import_cudaq():  # pragma: no cover - optional dependency
+    try:
+        return importlib.import_module("cudaq")
+    except ImportError:
+        return None
 
 
 class QiskitQuantumCritic:
@@ -98,8 +96,10 @@ class CudaQQuantumCritic:
         shots: int = 256,
         seed: int | None = None,
     ) -> None:
-        if cudaq is None:
+        cudaq_mod = _import_cudaq()
+        if cudaq_mod is None:
             raise RuntimeError("cudaq is not available")
+        self._cudaq = cudaq_mod
         self.state_dim = int(state_dim)
         self.n_qubits = int(n_qubits)
         self.n_layers = int(n_layers)
@@ -110,9 +110,16 @@ class CudaQQuantumCritic:
         self.proj = self.rng.normal(0.0, 1.0, size=(self.n_qubits,))
         self.proj /= np.sqrt(self.n_qubits)
 
-        @cudaq.kernel
+        mz = getattr(self._cudaq, "mz", None) or getattr(self._cudaq, "measure", None)
+        if mz is None:
+            raise RuntimeError("cudaq measurement gate not available")
+        ry = self._cudaq.ry
+        rz = self._cudaq.rz
+        x = self._cudaq.x
+
+        @self._cudaq.kernel
         def kernel(input_params: list[float], weights: list[float]):
-            q = cudaq.qvector(self.n_qubits)
+            q = self._cudaq.qvector(self.n_qubits)
             for i in range(self.n_qubits):
                 ry(input_params[i], q[i])
                 rz(input_params[i], q[i])
@@ -144,7 +151,7 @@ class CudaQQuantumCritic:
 
     def forward(self, state: np.ndarray) -> float:
         angles = _state_to_angles(state, self.n_qubits)
-        counts = cudaq.sample(
+        counts = self._cudaq.sample(
             self.kernel, angles.tolist(), self.weights.tolist(), shots_count=self.shots
         )
         count_map = counts.counts() if hasattr(counts, "counts") else counts

@@ -2,16 +2,7 @@ from __future__ import annotations
 
 from typing import List, Tuple
 
-try:
-    import cudaq as _cudaq
-    from cudaq import mz, reset, ry, rz, x
-except ImportError:  # pragma: no cover - optional dependency
-    cudaq = None
-    mz = reset = ry = rz = x = None
-except Exception as exc:  # pragma: no cover - surface real import errors
-    raise RuntimeError(f"cudaq import failed: {exc}") from exc
-else:
-    cudaq = _cudaq
+import importlib
 
 # Constants are kept for reference only. Do not use them inside kernels.
 N_ATOMS = 5
@@ -20,21 +11,41 @@ BOND_Q = 2
 ANC_Q = 2
 
 
-def _compute_none_flag(q, atom_indices, anc_idx) -> None:
-    """Compute ancilla = 1 iff atom code == 000 (NONE)."""
-    for idx in atom_indices:
-        x(q[idx])
-    x.ctrl([q[i] for i in atom_indices], q[anc_idx])
-    for idx in atom_indices:
-        x(q[idx])
+def _import_cudaq():  # pragma: no cover - thin wrapper
+    try:
+        return importlib.import_module("cudaq")
+    except ImportError:
+        return None
+
+
+cudaq = _import_cudaq()
 
 
 def build_sqmg_cudaq_kernel(
     atom_layers: int = 2,
     bond_layers: int = 1,
 ) -> Tuple["cudaq.Kernel", int]:
-    if cudaq is None:
+    cudaq_mod = _import_cudaq()
+    if cudaq_mod is None:
         raise RuntimeError("cudaq is not available")
+    try:
+        mz = getattr(cudaq_mod, "mz", None) or getattr(cudaq_mod, "measure", None)
+        if mz is None:
+            raise AttributeError("cudaq measurement gate not available")
+        reset = cudaq_mod.reset
+        ry = cudaq_mod.ry
+        rz = cudaq_mod.rz
+        x = cudaq_mod.x
+    except Exception as exc:
+        raise RuntimeError("cudaq is installed but failed to build SQMG kernel") from exc
+
+    def _compute_none_flag(q, atom_indices, anc_idx) -> None:
+        """Compute ancilla = 1 iff atom code == 000 (NONE)."""
+        for idx in atom_indices:
+            x(q[idx])
+        x.ctrl([q[i] for i in atom_indices], q[anc_idx])
+        for idx in atom_indices:
+            x(q[idx])
 
     n_atoms = 5
     atom_q = 3
@@ -57,9 +68,9 @@ def build_sqmg_cudaq_kernel(
     num_bond_params = bond_layers * bond_q * 2
     num_params = num_atom_params + num_bond_params
 
-    @cudaq.kernel
+    @cudaq_mod.kernel
     def kernel(params: List[float]):
-        q = cudaq.qvector(n_atoms * atom_q + bond_q + anc_q)
+        q = cudaq_mod.qvector(n_atoms * atom_q + bond_q + anc_q)
         bond_start = n_atoms * atom_q
         anc_start = bond_start + bond_q
 

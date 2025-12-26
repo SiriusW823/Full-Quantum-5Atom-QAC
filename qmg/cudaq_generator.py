@@ -2,13 +2,9 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple
 
+import importlib
 import logging
 import numpy as np
-
-try:
-    import cudaq
-except ImportError:  # pragma: no cover - optional dependency
-    cudaq = None
 
 from env import ATOM_VOCAB, BOND_VOCAB, EDGE_LIST, FiveAtomMolEnv
 from qmg.cudaq_kernel import build_sqmg_cudaq_kernel
@@ -17,39 +13,46 @@ from qmg.generator import SampledBatch
 logger = logging.getLogger(__name__)
 
 
-def _set_cudaq_target(device: str) -> str:
+def _import_cudaq():  # pragma: no cover - optional dependency
+    try:
+        return importlib.import_module("cudaq")
+    except ImportError:
+        return None
+
+
+def _set_cudaq_target(cudaq_mod, device: str) -> str:
     device = device.lower()
     if device in ("cuda-gpu", "gpu", "nvidia"):
         try:
-            cudaq.set_target("nvidia")
+            cudaq_mod.set_target("nvidia")
             return "nvidia"
         except Exception:
-            cudaq.set_target("qpp-cpu")
+            cudaq_mod.set_target("qpp-cpu")
             return "qpp-cpu"
     if device in ("cuda-cpu", "cpu", "qpp", "qpp-cpu"):
-        cudaq.set_target("qpp-cpu")
+        cudaq_mod.set_target("qpp-cpu")
         return "qpp-cpu"
 
     # auto/unknown: default to CPU target
     try:
-        cudaq.set_target("qpp-cpu")
+        cudaq_mod.set_target("qpp-cpu")
     except Exception as exc:
         print(f"[warn] cudaq.set_target failed for qpp-cpu: {exc}")
     print(f"[warn] Unknown CUDA-Q device '{device}', defaulting to qpp-cpu.")
     return "qpp-cpu"
 
 
-def _set_cudaq_seed(seed: int | None) -> None:
+def _set_cudaq_seed(cudaq_mod, seed: int | None) -> None:
     if seed is None:
         return
-    if hasattr(cudaq, "set_random_seed"):
+    if hasattr(cudaq_mod, "set_random_seed"):
         try:
-            cudaq.set_random_seed(seed)
+            cudaq_mod.set_random_seed(seed)
         except Exception:
             pass
-    if hasattr(cudaq, "set_seed"):
+    if hasattr(cudaq_mod, "set_seed"):
         try:
-            cudaq.set_seed(seed)
+            cudaq_mod.set_seed(seed)
         except Exception:
             pass
 
@@ -65,8 +68,10 @@ class CudaQMGGenerator:
         device: str = "cpu",
         seed: int | None = None,
     ) -> None:
-        if cudaq is None:
+        cudaq_mod = _import_cudaq()
+        if cudaq_mod is None:
             raise RuntimeError("cudaq is not installed. Install requirements-cudaq.txt.")
+        self._cudaq = cudaq_mod
         self.atom_layers = int(atom_layers)
         self.bond_layers = int(bond_layers)
         self.rng = np.random.default_rng(seed)
@@ -78,11 +83,11 @@ class CudaQMGGenerator:
         )
         self.weights = self.rng.normal(0.0, 0.2, size=self.num_params)
 
-        _set_cudaq_seed(seed)
-        self.target = _set_cudaq_target(device)
+        _set_cudaq_seed(self._cudaq, seed)
+        self.target = _set_cudaq_target(self._cudaq, device)
         logger.debug(
             "cudaq_version=%s target=%s",
-            getattr(cudaq, "__version__", "unknown"),
+            getattr(self._cudaq, "__version__", "unknown"),
             self.target,
         )
 
@@ -130,7 +135,9 @@ class CudaQMGGenerator:
         return atom_ids, bond_ids
 
     def sample_actions(self, batch_size: int = 1) -> SampledBatch:
-        counts = cudaq.sample(self.kernel, self.weights.tolist(), shots_count=batch_size)
+        counts = self._cudaq.sample(
+            self.kernel, self.weights.tolist(), shots_count=batch_size
+        )
         if hasattr(counts, "counts"):
             count_map = counts.counts()
         else:
