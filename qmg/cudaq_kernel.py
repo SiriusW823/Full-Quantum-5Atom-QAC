@@ -25,8 +25,10 @@ def build_sqmg_cudaq_kernel(
     atom_layers: int = 2,
     bond_layers: int = 1,
 ) -> Tuple["cudaq.Kernel", int]:
-    cudaq_mod = _import_cudaq()
-    if cudaq_mod is None:
+    global cudaq
+    if cudaq is None:
+        cudaq = _import_cudaq()
+    if cudaq is None:
         raise RuntimeError("cudaq is not available")
     def _compute_none_flag(q, atom_indices, anc_idx) -> None:
         """Compute ancilla = 1 iff atom code == 000 (NONE)."""
@@ -58,9 +60,9 @@ def build_sqmg_cudaq_kernel(
     num_params = num_atom_params + num_bond_params
 
     try:
-        @cudaq_mod.kernel
+        @cudaq.kernel
         def kernel(params: List[float]):
-            q = cudaq_mod.qvector(n_atoms * atom_q + bond_q + anc_q)
+            q = cudaq.qvector(n_atoms * atom_q + bond_q + anc_q)
             bond_start = n_atoms * atom_q
             anc_start = bond_start + bond_q
 
