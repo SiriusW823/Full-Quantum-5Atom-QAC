@@ -3,11 +3,26 @@ from __future__ import annotations
 from typing import List, Tuple
 
 try:
-    import cudaq
-    from cudaq import mz, reset, rx, ry, rz, x
+    import cudaq as _cudaq
 except ImportError:  # pragma: no cover - optional dependency
     cudaq = None
     mz = reset = rx = ry = rz = x = None
+else:
+    cudaq = _cudaq
+
+    def _require_gate(name: str, alternates: tuple[str, ...] = ()):
+        for candidate in (name,) + alternates:
+            gate = getattr(cudaq, candidate, None)
+            if gate is not None:
+                return gate
+        raise ImportError(f"cudaq gate '{name}' not available")
+
+    mz = _require_gate("mz", ("measure",))
+    reset = _require_gate("reset")
+    rx = _require_gate("rx")
+    ry = _require_gate("ry")
+    rz = _require_gate("rz")
+    x = _require_gate("x")
 
 # Constants are kept for reference only. Do not use them inside kernels.
 N_ATOMS = 5

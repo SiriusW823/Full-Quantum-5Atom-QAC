@@ -13,11 +13,24 @@ from qiskit.circuit import ParameterVector
 from qiskit.quantum_info import Statevector
 
 try:  # optional CUDA-Q backend
-    import cudaq
-    from cudaq import mz, ry, rz, x
+    import cudaq as _cudaq
 except ImportError:  # pragma: no cover - optional dependency
     cudaq = None
     mz = ry = rz = x = None
+else:
+    cudaq = _cudaq
+
+    def _require_gate(name: str, alternates: tuple[str, ...] = ()):
+        for candidate in (name,) + alternates:
+            gate = getattr(cudaq, candidate, None)
+            if gate is not None:
+                return gate
+        raise ImportError(f"cudaq gate '{name}' not available")
+
+    mz = _require_gate("mz", ("measure",))
+    ry = _require_gate("ry")
+    rz = _require_gate("rz")
+    x = _require_gate("x")
 
 
 def _state_to_angles(state: np.ndarray, n_qubits: int) -> np.ndarray:
