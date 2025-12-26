@@ -1,193 +1,223 @@
-# Full-Quantum-5Atom-QAC
+Full-Quantum‑5Atom‑QAC
+Overview
 
-## Overview
-Full-Quantum-5Atom-QAC is a reference implementation of Scalable Quantum Molecular Generation (SQMG) combined with a Quantum Actor-Critic (QRL) training loop. The goal is to generate chemically valid 5-atom molecules using fully quantum circuits and to optimize the composite objective:
+Full‑Quantum‑5Atom‑QAC is a reference implementation of Scalable Quantum Molecular Generation (SQMG) combined with a Quantum Actor–Critic (QRL) training loop. The goal is to explore the generation of chemically valid 5‑atom molecules using fully quantum circuits and to train the generator with reinforcement learning in strict adherence to the composite objective described in our accompanying paper.
 
-Validity x Uniqueness
+The SQMG circuit uses a 3‑qubit encoding for each heavy atom and a 2‑qubit encoding for each bond. Five heavy atoms are connected in a complete graph (10 edges). Only two bond‑qubits are used; they are dynamically reused for each edge. Ancilla qubits detect whether the two atoms of an edge are both non‑NONE before applying the bond ansatz. The generator produces raw bitstrings for atom types and bond types, which are decoded into molecular graphs.
 
-Validity is determined by RDKit sanitization. Uniqueness is computed over valid molecules only.
+Training is performed with a quantum actor–critic (A2C) algorithm using SPSA/parameter‑shift for gradient estimation. The state is a high‑level summary of generator behaviour (validity ratio, uniqueness ratio, composite score, and statistics of the generator’s parameters). The action is a direction in parameter space; the actor outputs update directions and the critic predicts state values. The reward is defined as the product of validity and uniqueness and is always bounded between 0 and 1. Our implementation offers both strict mode (raw validity/uniqueness from the quantum circuit) and repair mode (chemically repair invalid structures by downgrading bonds). Strict mode is the default and should be used for official evaluations.
 
-## Representation and circuit design
+Representation and circuit design
 
-### Atom vocabulary (3-bit)
-```python
-ATOM_VOCAB = ["NONE", "C", "O", "N", "S", "P", "F", "Cl"]
-```
+Atom vocabulary:
 
-Atom decode mapping:
-- 000 -> NONE
-- 001 -> C
-- 010 -> O
-- 011 -> N
-- 100 -> S
-- 101 -> P
-- 110 -> F
-- 111 -> Cl
+NONE, C, O, N, S, P, F, Cl
 
-### Bond vocabulary (2-bit)
-```python
-BOND_VOCAB = ["NONE", "SINGLE", "DOUBLE", "TRIPLE"]
-```
 
-Bond decode mapping:
-- 00 -> NONE
-- 01 -> SINGLE
-- 10 -> DOUBLE
-- 11 -> TRIPLE
+Each heavy atom is represented by 3 qubits (8 possible states). The mapping 000→NONE, 001→C, 010→O, etc., matches the PDF definition
+github.com
+.
 
-### Full-graph bonds (N=5)
-We use a complete graph with 10 edges:
-```python
-EDGE_LIST = [
-  (0, 1), (0, 2), (0, 3), (0, 4),
-  (1, 2), (1, 3), (1, 4),
-  (2, 3), (2, 4),
-  (3, 4),
-]
-```
+Bond vocabulary:
 
-### SQMG hybrid circuit (PDF-aligned)
-For N=5 we use:
-- 5 atom blocks x 3 qubits = 15 qubits
-- 1 bond register of 2 qubits, dynamically reused per edge
-- 2 ancilla qubits for in-circuit masking
+NONE, SINGLE, DOUBLE, TRIPLE
 
-For each edge, the circuit:
-1) Computes NONE flags for the two endpoint atoms using reversible logic
-2) Applies the bond ansatz only if both endpoints are non-NONE
-3) Measures bond qubits and resets them for reuse
 
-After all edges, the atom qubits are measured. This matches the SQMG/QCNC design in the PDF without classical feedforward (no if_test / c_if).
+Each bond is represented by 2 qubits. Bonds are only defined between the 5 heavy atoms, forming a complete graph of 10 edges
+github.com
+.
 
-## Environment and metrics
-The environment decodes atoms and bonds into an RDKit molecule:
-- active_atoms < 2 -> invalid
-- add only non-NONE atoms
-- add a bond only if both endpoints exist and bond != NONE
-- sanitize + canonicalize SMILES
-- reject fragmented molecules if SMILES contains '.'
+Circuit layout: For 5 atoms we use 5×3 + 2 + 2 qubits: 15 qubits for atoms, 2 bond qubits that are dynamically reused per edge, and 2 ancilla qubits to detect NONE states. For each edge (i,j) the circuit:
 
-### Strict vs repair mode
-- strict (repair_bonds=False, default): no bond repair
-- repair (repair_bonds=True): deterministic bond repair by downgrading bond orders that exceed valence
+Computes NONE flags for atoms i and j and stores them on ancilla qubits.
 
-Both strict and repair metrics are available:
-- validity_raw_pdf, uniqueness_raw_pdf, reward_raw_pdf
-- validity_pdf, uniqueness_pdf, reward_pdf
+Applies the bond ansatz only if both flags indicate non‑NONE atoms.
 
-Composite reward is always defined as Validity x Uniqueness and bounded in [0, 1].
+Measures the bond qubits and resets them for the next edge.
 
-## Quantum Actor-Critic (QRL)
-We use a quantum actor-critic (A2C) loop with SPSA updates. The actor outputs a Gaussian policy in a fixed action space, and the critic predicts a value baseline. The QMG parameters are updated by projecting actions into the generator parameter space.
+After processing all edges, measures the 15 atom qubits.
 
-### State features
-The A2C state includes:
-- valid_ratio, unique_ratio, target_metric
-- normalized counts (valid_count/samples, unique_valid_count/samples)
-- log-unique novelty feature
-- generator weight statistics (mean, std, L2, min, max)
+This dynamic reuse and conditional bond operation mirrors the description in the PDF
+github.com
+.
 
-### Reward definition
-Step-local reward is PDF-aligned:
-```
-reward_step = validity_step * uniqueness_step
-```
-where:
-- validity_step = valid_in_batch / batch_size
-- uniqueness_step = unique_valid_in_batch / max(valid_in_batch, 1)
+Environment and metrics
 
-### Warm-start and adaptive exploration
-- --warm-start-repair N runs the first N episodes in repair mode, then switches to strict
-- --adaptive-exploration adapts sigma_max, k_batches, and patience during strict training if eval reward stalls
+The environment decodes the bitstrings into atoms and bonds and validates the resulting molecule:
 
-## CUDA-Q support
-This repo supports both Qiskit and CUDA-Q backends:
-- --backend qiskit uses Qiskit Aer
-- --backend cudaq uses CUDA-Q kernels
+Validity: fraction of sampled molecules that are chemically valid (correct valence, single connected component, no hydrogen deficiency, etc.).
 
-Device routing:
-- --device cpu or --device gpu (Qiskit)
-- --device cuda-cpu or --device cuda-gpu (CUDA-Q)
-- --device auto attempts GPU first, then falls back to CPU
+Uniqueness: proportion of valid molecules that are distinct SMILES strings.
 
-## Installation
-Create a Python 3.10 environment (recommended with conda):
-```bash
+Composite score: validity × uniqueness. In strict mode this is reward_raw_pdf; in repair mode it is reward_pdf. The maximum value is 1
+github.com
+.
+
+The environment can optionally repair bonds by downgrading bond orders that violate valence rules. Strict mode (repair_bonds=False) disables this post‑processing.
+
+Reinforcement learning (QRL)
+
+The actor–critic agent learns to update the generator parameters to maximise the composite score. Key features:
+
+Strict default: training and evaluation use strict mode unless warm start indicates otherwise. The agent receives a reward of validity_raw_pdf × uniqueness_raw_pdf.
+
+Warm start: you can start training in repair mode for the first N episodes to avoid a “cold start” where no valid molecules are produced. Use --warm-start-repair N to enable; after N episodes, training switches to strict mode automatically.
+
+Adaptive exploration: optionally adjust exploration hyper‑parameters (sigma_max, patience, k_batches) when the strict reward remains below a threshold over a sliding window. Use --adaptive-exploration together with --adapt-threshold and --adapt-window.
+
+CUDA‑Q support: the generator, actor and critic have both Qiskit and CUDA‑Q implementations. Select the backend via --backend {qiskit,cudaq}. For CUDA‑Q, the environment automatically selects an available GPU if you specify --device cuda-gpu or uses the CPU (--device cuda-cpu) as a fallback.
+
+State features
+
+At each step, the agent observes:
+
+valid_ratio, unique_ratio, target_metric: running averages over the generated batch;
+
+dup_ratio: fraction of duplicated samples;
+
+log(samples), log(unique);
+
+statistics of the generator’s parameters: mean, standard deviation, L2 norm, minimum and maximum.
+
+Reward and maximum value
+
+During training, the reward for each batch is calculated as:
+
+reward = validity_step × uniqueness_step
+
+
+The maximum possible reward is 1, achieved when all sampled molecules are valid and unique.
+
+Installation
+
+Clone this repository and create a Python 3.10 environment. We recommend using Conda:
+
 conda create -n qrl_fq_5atom python=3.10 -y
 conda activate qrl_fq_5atom
-```
+
+
+Install the required packages for your target backend:
 
 CPU / Qiskit:
-```bash
+
 pip install -r requirements-cpu.txt
-pip install -r requirements-dev.txt
-```
 
-GPU / Qiskit (requires a supported GPU):
-```bash
+
+GPU / Qiskit: you need CUDA 11.7+ and a supported GPU. Install:
+
 pip install -r requirements-gpu.txt
-pip install -r requirements-dev.txt
-```
 
-CUDA-Q:
-```bash
+
+CUDA‑Q: you need NVIDIA GPU support and the CUDA‑Q SDK. Install:
+
 pip install -r requirements-cudaq.txt
-pip install -r requirements-dev.txt
-```
 
-Run tests:
-```bash
+
+After installation, run the tests:
+
 python -m pytest -q
-```
 
-## Usage
-### Sampling (SQMG)
-```bash
+
+Ensure that all tests pass before running long training runs.
+
+Usage
+Sampling molecules
+
+To sample molecules using SQMG:
+
 python -m scripts.sample_qmg --mode sqmg --backend qiskit --n 500
-python -m scripts.sample_qmg --mode sqmg --backend cudaq --n 500
-```
 
-### One-command training (metrics.csv + plots)
-```bash
+
+Key arguments:
+
+--mode {sqmg,factorized}: choose between the new SQMG generator or the older factorised model.
+
+--backend {qiskit,cudaq}: select the quantum backend.
+
+--n: number of samples.
+
+--repair-bonds: enable repair mode during sampling (defaults to strict mode).
+
+Training with A2C
+
+Use scripts/run_one_train.py for single‑GPU or CPU training with evaluation logging:
+
 python -m scripts.run_one_train \
-  --episodes 2000 \
-  --batch-size 256 \
-  --backend qiskit \
-  --device auto \
-  --out runs/exp1 \
-  --warm-start-repair 500 \
-  --adaptive-exploration \
-  --eval-every 50 \
-  --eval-shots 2000
-```
+    --episodes 2000 \
+    --batch-size 256 \
+    --backend qiskit \
+    --device auto \
+    --out runs/exp1 \
+    --warm-start-repair 500 \
+    --adaptive-exploration \
+    --eval-every 50 \
+    --eval-shots 2000
 
-### Advanced training
-```bash
-python -m scripts.train_qmg_qrl \
-  --algo a2c \
-  --steps 5000 \
-  --batch-size 256 \
-  --backend qiskit \
-  --out-dir runs/a2c \
-  --warm-start-repair 500 \
-  --adaptive-exploration \
-  --eval-every 50 \
-  --eval-shots 2000
-```
 
-## Outputs
-Training produces:
-- runs/<exp>/metrics.csv (step-level)
-- runs/<exp>/eval.csv (evaluation-level)
-- reward_eval.png, validity_eval.png, uniqueness_eval.png
-- best_weights.npy and best_eval.json (when --track-best is enabled)
+This command will:
 
-## Cleanup
-```bash
+Warm‑start in repair mode for 500 episodes, then switch to strict mode.
+
+Every 50 episodes, evaluate the generator on 2000 samples and write the results to eval.csv.
+
+Produce plot files: reward_eval.png, validity_eval.png, uniqueness_eval.png, and step‑level reward curves.
+
+To use CUDA‑Q with GPU support:
+
+python -m scripts.run_one_train \
+    --episodes 2000 \
+    --batch-size 256 \
+    --backend cudaq \
+    --device cuda-gpu \
+    --warm-start-repair 500 \
+    --adaptive-exploration
+
+Advanced training with multi‑hyperparameters
+
+For more customisable RL training (multiple actors, critics, or experiment sweeps), use scripts/train_qmg_qrl.py. This script supports additional hyper‑parameters and can perform grid search if desired.
+
+Evaluating and plotting
+
+After training, you can inspect:
+
+runs/<exp>/eval.csv: a CSV containing episode, phase, reward_raw_pdf_eval, reward_pdf_eval, validity_eval, uniqueness_eval, sigma_max, k_batches, patience and other metrics.
+
+reward_eval.png, validity_eval.png, uniqueness_eval.png: automatically generated plots showing the composite score and its components over evaluation episodes, including the warm‑start transition marker and best‑so‑far curve.
+
+Use any plotting tool to visualise the training curves or further analyse the CSV.
+
+GPU considerations
+
+Qiskit GPU backend: requires qiskit-aer-gpu (installed via requirements-gpu.txt). It accelerates state‑vector simulation but may still be slower than CUDA‑Q on large sample sizes.
+
+CUDA‑Q backend: offers GPU‑accelerated tensor‑network and state‑vector simulation. Use --device cuda-gpu to select a GPU. If no GPU is available or the backend fails, it automatically falls back to CPU.
+
+Check GPU availability with nvidia-smi. Ensure the environment variables (e.g. CUDA_VISIBLE_DEVICES) are set correctly.
+
+Cleaning up the environment
+
+To remove the project and its Conda environment from your system:
+
 conda deactivate
 conda env remove -n qrl_fq_5atom -y
 rm -rf /path/to/Full-Quantum-5Atom-QAC
-```
 
-## License
-See LICENSE.
+SSH cleanup and re-clone (GPU env example):
+
+rm -rf ~/Full-Quantum-5Atom-QAC
+conda deactivate
+conda env remove -n qrl_fq_5atom_gpu -y
+conda create -n qrl_fq_5atom_gpu python=3.10 -y
+conda activate qrl_fq_5atom_gpu
+git clone git@github.com:SiriusW823/Full-Quantum-5Atom-QAC.git
+cd Full-Quantum-5Atom-QAC
+pip install -r requirements-gpu.txt
+
+License
+
+See LICENSE
+ for the full license text. The project is released under the MIT License.
+
+Contact
+
+For questions or contributions, please open an issue or pull request on the repository.
