@@ -4,8 +4,10 @@ from typing import List, Tuple
 
 try:
     import cudaq
+    from cudaq import mz, reset, rx, ry, rz, x
 except Exception:  # pragma: no cover - optional dependency
     cudaq = None
+    mz = reset = rx = ry = rz = x = None
 
 # Constants are kept for reference only. Do not use them inside kernels.
 N_ATOMS = 5
@@ -17,10 +19,10 @@ ANC_Q = 2
 def _compute_none_flag(q, atom_indices, anc_idx) -> None:
     """Compute ancilla = 1 iff atom code == 000 (NONE)."""
     for idx in atom_indices:
-        cudaq.x(q[idx])
-    cudaq.x.ctrl([q[i] for i in atom_indices], q[anc_idx])
+        x(q[idx])
+    x.ctrl([q[i] for i in atom_indices], q[anc_idx])
     for idx in atom_indices:
-        cudaq.x(q[idx])
+        x(q[idx])
 
 
 def build_sqmg_cudaq_kernel(
@@ -62,16 +64,16 @@ def build_sqmg_cudaq_kernel(
             base = atom_idx * atom_q
             for _ in range(atom_layers):
                 for off in range(atom_q):
-                    cudaq.ry(params[p], q[base + off])
-                    cudaq.rz(params[p + 1], q[base + off])
+                    ry(params[p], q[base + off])
+                    rz(params[p + 1], q[base + off])
                     p += 2
-                cudaq.x.ctrl(q[base], q[base + 1])
-                cudaq.x.ctrl(q[base + 1], q[base + 2])
+                x.ctrl(q[base], q[base + 1])
+                x.ctrl(q[base + 1], q[base + 2])
 
         for i, j in edges:
             # reset bond qubits
-            cudaq.reset(q[bond_start + 0])
-            cudaq.reset(q[bond_start + 1])
+            reset(q[bond_start + 0])
+            reset(q[bond_start + 1])
 
             atom_i = [i * atom_q + 0, i * atom_q + 1, i * atom_q + 2]
             atom_j = [j * atom_q + 0, j * atom_q + 1, j * atom_q + 2]
@@ -80,41 +82,41 @@ def build_sqmg_cudaq_kernel(
             _compute_none_flag(q, atom_j, anc_start + 1)
 
             # active flags
-            cudaq.x(q[anc_start + 0])
-            cudaq.x(q[anc_start + 1])
+            x(q[anc_start + 0])
+            x(q[anc_start + 1])
 
             bp = num_atom_params
             for _ in range(bond_layers):
                 for bq in range(bond_q):
-                    cudaq.ry.ctrl(
+                    ry.ctrl(
                         [q[anc_start + 0], q[anc_start + 1]],
                         q[bond_start + bq],
                         params[bp],
                     )
-                    cudaq.rz.ctrl(
+                    rz.ctrl(
                         [q[anc_start + 0], q[anc_start + 1]],
                         q[bond_start + bq],
                         params[bp + 1],
                     )
                     bp += 2
-                cudaq.x.ctrl(
+                x.ctrl(
                     [q[anc_start + 0], q[anc_start + 1], q[bond_start + 0]],
                     q[bond_start + 1],
                 )
 
-            cudaq.x(q[anc_start + 0])
-            cudaq.x(q[anc_start + 1])
+            x(q[anc_start + 0])
+            x(q[anc_start + 1])
 
             _compute_none_flag(q, atom_j, anc_start + 1)
             _compute_none_flag(q, atom_i, anc_start + 0)
 
             # measure bond qubits (2 bits per edge)
-            cudaq.measure(q[bond_start + 0])
-            cudaq.measure(q[bond_start + 1])
+            mz(q[bond_start + 0])
+            mz(q[bond_start + 1])
 
         # measure atoms (15 bits)
         for idx in range(n_atoms * atom_q):
-            cudaq.measure(q[idx])
+            mz(q[idx])
 
     return kernel, num_params
 

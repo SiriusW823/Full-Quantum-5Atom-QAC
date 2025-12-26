@@ -14,8 +14,10 @@ from qrl.actor import _state_to_angles, _z_expectations_from_statevector, _z_exp
 
 try:  # optional CUDA-Q backend
     import cudaq
+    from cudaq import mz, ry, rz, x
 except Exception:  # pragma: no cover - optional dependency
     cudaq = None
+    mz = ry = rz = x = None
 
 
 class QiskitQuantumCritic:
@@ -108,20 +110,20 @@ class CudaQQuantumCritic:
         def kernel(input_params: list[float], weights: list[float]):
             q = cudaq.qvector(self.n_qubits)
             for i in range(self.n_qubits):
-                cudaq.ry(input_params[i], q[i])
-                cudaq.rz(input_params[i], q[i])
+                ry(input_params[i], q[i])
+                rz(input_params[i], q[i])
             w_idx = 0
             for _ in range(self.n_layers):
                 for qb in range(self.n_qubits):
-                    cudaq.ry(weights[w_idx], q[qb])
-                    cudaq.rz(weights[w_idx + 1], q[qb])
+                    ry(weights[w_idx], q[qb])
+                    rz(weights[w_idx + 1], q[qb])
                     w_idx += 2
                 for qb in range(self.n_qubits - 1):
-                    cudaq.x.ctrl(q[qb], q[qb + 1])
+                    x.ctrl(q[qb], q[qb + 1])
                 if self.n_qubits > 1:
-                    cudaq.x.ctrl(q[self.n_qubits - 1], q[0])
+                    x.ctrl(q[self.n_qubits - 1], q[0])
             for qb in range(self.n_qubits):
-                cudaq.measure(q[qb])
+                mz(q[qb])
 
         self.kernel = kernel
 
