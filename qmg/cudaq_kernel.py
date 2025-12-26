@@ -29,13 +29,7 @@ def build_sqmg_cudaq_kernel(
     if cudaq_mod is None:
         raise RuntimeError("cudaq is not available")
     try:
-        mz = getattr(cudaq_mod, "mz", None) or getattr(cudaq_mod, "measure", None)
-        if mz is None:
-            raise AttributeError("cudaq measurement gate not available")
-        reset = cudaq_mod.reset
-        ry = cudaq_mod.ry
-        rz = cudaq_mod.rz
-        x = cudaq_mod.x
+        from cudaq import mz, reset, ry, rz, x  # type: ignore
     except Exception as exc:
         raise RuntimeError("cudaq is installed but failed to build SQMG kernel") from exc
 
