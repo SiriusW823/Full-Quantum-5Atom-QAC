@@ -17,17 +17,26 @@ try:  # optional CUDA-Q backend
 except ImportError:  # pragma: no cover - optional dependency
     cudaq = None
     mz = ry = rz = x = None
+except Exception as exc:  # pragma: no cover - surface real import errors
+    raise RuntimeError(f"cudaq import failed: {exc}") from exc
 else:
     cudaq = _cudaq
 
-    def _require_gate(name: str, alternates: tuple[str, ...] = ()):
-        for candidate in (name,) + alternates:
-            gate = getattr(cudaq, candidate, None)
-            if gate is not None:
-                return gate
-        raise ImportError(f"cudaq gate '{name}' not available")
+    def _require_gate(name: str):
+        gate = getattr(cudaq, name, None)
+        if gate is None:
+            raise ImportError(f"cudaq gate '{name}' not available")
+        return gate
 
-    mz = _require_gate("mz", ("measure",))
+    def _get_measure():
+        gate = getattr(cudaq, "mz", None)
+        if gate is None:
+            gate = getattr(cudaq, "measure", None)
+        if gate is None:
+            raise ImportError("cudaq measurement gate not available")
+        return gate
+
+    mz = _get_measure()
     ry = _require_gate("ry")
     rz = _require_gate("rz")
     x = _require_gate("x")
