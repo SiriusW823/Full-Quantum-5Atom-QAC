@@ -21,19 +21,19 @@ def _set_cudaq_target(device: str) -> str:
             cudaq.set_target("nvidia")
             return "nvidia"
         except Exception:
-            cudaq.set_target("qpp")
-            return "qpp"
-    if device in ("cuda-cpu", "cpu", "qpp"):
-        cudaq.set_target("qpp")
-        return "qpp"
+            cudaq.set_target("qpp-cpu")
+            return "qpp-cpu"
+    if device in ("cuda-cpu", "cpu", "qpp", "qpp-cpu"):
+        cudaq.set_target("qpp-cpu")
+        return "qpp-cpu"
 
-    # auto: try GPU then fallback
+    # auto/unknown: default to CPU target
     try:
-        cudaq.set_target("nvidia")
-        return "nvidia"
-    except Exception:
-        cudaq.set_target("qpp")
-        return "qpp"
+        cudaq.set_target("qpp-cpu")
+    except Exception as exc:
+        print(f"[warn] cudaq.set_target failed for qpp-cpu: {exc}")
+    print(f"[warn] Unknown CUDA-Q device '{device}', defaulting to qpp-cpu.")
+    return "qpp-cpu"
 
 
 def _set_cudaq_seed(seed: int | None) -> None:
