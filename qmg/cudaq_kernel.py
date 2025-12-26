@@ -57,34 +57,59 @@ def build_sqmg_cudaq_kernel(
         bond_start = n_atoms * atom_q
         anc_start = bond_start + bond_q
 
+        x_k, x_t = cudaq.make_kernel(cudaq.qubit)
+        x_k.x(x_t)
+
+        cx_k, cx_c, cx_t = cudaq.make_kernel(cudaq.qubit, cudaq.qubit)
+        cx_k.control(x_k, cx_c, cx_t)
+
+        ccx_k, ccx_c0, ccx_c1, ccx_t = cudaq.make_kernel(
+            cudaq.qubit, cudaq.qubit, cudaq.qubit
+        )
+        ccx_k.control(cx_k, ccx_c0, ccx_c1, ccx_t)
+
+        c3x_k, c3_c0, c3_c1, c3_c2, c3_t = cudaq.make_kernel(
+            cudaq.qubit, cudaq.qubit, cudaq.qubit, cudaq.qubit
+        )
+        c3x_k.control(ccx_k, c3_c0, c3_c1, c3_c2, c3_t)
+
         def _x(target):
-            kernel.x(target=target)
+            kernel.x(target)
 
         def _ry(theta, target):
-            kernel.ry(parameter=theta, target=target)
+            kernel.ry(theta, target)
 
         def _rz(theta, target):
-            kernel.rz(parameter=theta, target=target)
+            kernel.rz(theta, target)
 
         def _reset(target):
-            kernel.reset(target=target)
+            kernel.reset(target)
 
         def _mz(target):
-            kernel.mz(target=target)
+            kernel.mz(target)
 
-        def _cx(controls, target):
-            kernel.cx(controls=controls, target=target)
+        def _mcx(controls, target):
+            if len(controls) == 1:
+                kernel.control(x_k, controls[0], target)
+                return
+            if len(controls) == 2:
+                kernel.control(cx_k, controls[0], controls[1], target)
+                return
+            if len(controls) == 3:
+                kernel.control(ccx_k, controls[0], controls[1], controls[2], target)
+                return
+            raise RuntimeError(f"Unsupported control count: {len(controls)}")
 
         def _cry2(theta, c0, c1, target):
-            kernel.cry(parameter=theta, controls=[c0, c1], target=target)
+            kernel.cry(theta, [c0, c1], target)
 
         def _crz2(theta, c0, c1, target):
-            kernel.crz(parameter=theta, controls=[c0, c1], target=target)
+            kernel.crz(theta, [c0, c1], target)
 
         def _compute_none_flag(atom_indices, anc_idx) -> None:
             for idx in atom_indices:
                 _x(q[idx])
-            _cx([q[i] for i in atom_indices], q[anc_idx])
+            _mcx([q[i] for i in atom_indices], q[anc_idx])
             for idx in atom_indices:
                 _x(q[idx])
 
@@ -96,8 +121,8 @@ def build_sqmg_cudaq_kernel(
                     _ry(params[p], q[base + off])
                     _rz(params[p + 1], q[base + off])
                     p += 2
-                _cx([q[base]], q[base + 1])
-                _cx([q[base + 1]], q[base + 2])
+                _mcx([q[base]], q[base + 1])
+                _mcx([q[base + 1]], q[base + 2])
 
         for i, j in edges:
             _reset(q[bond_start + 0])
@@ -118,7 +143,7 @@ def build_sqmg_cudaq_kernel(
                     _cry2(params[bp], q[anc_start + 0], q[anc_start + 1], q[bond_start + bq])
                     _crz2(params[bp + 1], q[anc_start + 0], q[anc_start + 1], q[bond_start + bq])
                     bp += 2
-                _cx(
+                _mcx(
                     [q[anc_start + 0], q[anc_start + 1], q[bond_start + 0]],
                     q[bond_start + 1],
                 )
