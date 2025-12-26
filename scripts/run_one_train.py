@@ -26,6 +26,11 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from qmg.sqmg_generator import SQMGQiskitGenerator  # noqa: E402
+
+try:  # optional CUDA-Q backend
+    from qmg.cudaq_generator import CudaQMGGenerator  # type: ignore
+except Exception:  # pragma: no cover
+    CudaQMGGenerator = None
 from qrl.a2c import A2CConfig, a2c_step, build_state  # noqa: E402
 from qrl.actor import QiskitQuantumActor  # noqa: E402
 from qrl.critic import QiskitQuantumCritic  # noqa: E402
@@ -106,6 +111,7 @@ def run_one_train(
     batch_size: int = 256,
     out_dir: str | Path = "runs/dgx_run",
     device: str = "auto",
+    backend: str = "qiskit",
     gpus: int = 0,
     seed: int = 123,
     atom_layers: int = 2,
@@ -146,21 +152,34 @@ def run_one_train(
     plot_path = out_path / "reward.png"
 
     rng = np.random.default_rng(seed)
-    qmg = SQMGQiskitGenerator(
-        atom_layers=atom_layers,
-        bond_layers=bond_layers,
-        repair_bonds=repair_bonds,
-        seed=seed,
-    )
 
     resolved_device, detected_gpus = resolve_device(device, gpus)
-    print_aer_info(resolved_device)
-    backend, using_gpu = create_aer_backend(seed, resolved_device, detected_gpus)
-    configure_generator_backend(qmg, backend)
-    if resolved_device == "gpu" and using_gpu:
-        print(f"[info] Using Aer GPU backend (gpus={max(detected_gpus, 1)})")
+    if backend == "cudaq":
+        if CudaQMGGenerator is None:
+            raise RuntimeError("CUDA-Q backend requested but cudaq is not installed.")
+        qmg = CudaQMGGenerator(
+            atom_layers=atom_layers,
+            bond_layers=bond_layers,
+            repair_bonds=repair_bonds,
+            device=resolved_device,
+            seed=seed,
+        )
     else:
-        print("[info] Using Aer CPU backend")
+        qmg = SQMGQiskitGenerator(
+            atom_layers=atom_layers,
+            bond_layers=bond_layers,
+            repair_bonds=repair_bonds,
+            seed=seed,
+        )
+
+    if backend == "qiskit":
+        print_aer_info(resolved_device)
+        aer_backend, using_gpu = create_aer_backend(seed, resolved_device, detected_gpus)
+        configure_generator_backend(qmg, aer_backend)
+        if resolved_device == "gpu" and using_gpu:
+            print(f"[info] Using Aer GPU backend (gpus={max(detected_gpus, 1)})")
+        else:
+            print("[info] Using Aer CPU backend")
 
     state_dim = build_state(qmg).size
     actor = QiskitQuantumActor(
@@ -351,6 +370,7 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--out", type=str, default="runs/dgx_run")
     parser.add_argument("--device", choices=["auto", "cpu", "gpu"], default="auto")
+    parser.add_argument("--backend", choices=["qiskit", "cudaq"], default="qiskit")
     parser.add_argument("--gpus", type=int, default=0)
     parser.add_argument("--seed", type=int, default=123)
     parser.add_argument("--atom-layers", type=int, default=2)
@@ -391,6 +411,7 @@ def main() -> None:
         batch_size=args.batch_size,
         out_dir=args.out,
         device=args.device,
+        backend=args.backend,
         gpus=args.gpus,
         seed=args.seed,
         atom_layers=args.atom_layers,

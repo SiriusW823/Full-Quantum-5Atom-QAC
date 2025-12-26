@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -22,10 +24,31 @@ if str(REPO_ROOT) not in sys.path:
 
 from qmg.generator import QiskitQMGGenerator  # noqa: E402
 from qmg.sqmg_generator import SQMGQiskitGenerator  # noqa: E402
+
+try:  # optional CUDA-Q backend
+    from qmg.cudaq_generator import CudaQMGGenerator  # type: ignore
+except Exception:  # pragma: no cover
+    CudaQMGGenerator = None
 from qrl.a2c import A2CConfig, a2c_step, build_state  # noqa: E402
 from qrl.actor import QiskitQuantumActor  # noqa: E402
 from qrl.critic import QiskitQuantumCritic  # noqa: E402
 from qrl.helper import QiskitQRLHelper  # noqa: E402
+
+def _resolve_cudaq_device(device: str) -> str:
+    device = device.lower()
+    if device in ("cpu", "gpu"):
+        return device
+    env = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if env is not None:
+        ids = [x for x in env.split(",") if x.strip() != ""]
+        return "gpu" if ids else "cpu"
+    try:
+        result = subprocess.run(["nvidia-smi", "-L"], check=False, capture_output=True, text=True)
+    except FileNotFoundError:
+        return "cpu"
+    if result.returncode != 0:
+        return "cpu"
+    return "gpu" if any(line.strip().startswith("GPU") for line in result.stdout.splitlines()) else "cpu"
 
 
 def compute_rewards(
@@ -110,12 +133,23 @@ def run_helper(args: argparse.Namespace) -> None:
 
 def run_a2c(args: argparse.Namespace) -> None:
     rng = np.random.default_rng(args.seed)
-    qmg = SQMGQiskitGenerator(
-        atom_layers=args.atom_layers,
-        bond_layers=args.bond_layers,
-        repair_bonds=args.repair_bonds,
-        seed=args.seed,
-    )
+    if args.backend == "cudaq":
+        if CudaQMGGenerator is None:
+            raise RuntimeError("CUDA-Q backend requested but cudaq is not installed.")
+        qmg = CudaQMGGenerator(
+            atom_layers=args.atom_layers,
+            bond_layers=args.bond_layers,
+            repair_bonds=args.repair_bonds,
+            _resolve_cudaq_device(args.device),
+            seed=args.seed,
+        )
+    else:
+        qmg = SQMGQiskitGenerator(
+            atom_layers=args.atom_layers,
+            bond_layers=args.bond_layers,
+            repair_bonds=args.repair_bonds,
+            seed=args.seed,
+        )
 
     state_dim = build_state(qmg).size
     actor = QiskitQuantumActor(
@@ -137,7 +171,7 @@ def run_a2c(args: argparse.Namespace) -> None:
     proj = rng.normal(0.0, 1.0, size=(qmg.num_weights, args.action_dim))
     proj /= np.sqrt(args.action_dim)
 
-        cfg = A2CConfig(
+    cfg = A2CConfig(
         action_dim=args.action_dim,
         lr_theta=args.lr_theta,
         actor_a=args.actor_a,
@@ -156,10 +190,10 @@ def run_a2c(args: argparse.Namespace) -> None:
         sigma_boost=args.sigma_boost,
         sigma_decay=args.sigma_decay,
         patience=args.patience,
-            spsa_alpha=args.spsa_alpha,
-            spsa_gamma=args.spsa_gamma,
-            track_best=args.track_best,
-        )
+        spsa_alpha=args.spsa_alpha,
+        spsa_gamma=args.spsa_gamma,
+        track_best=args.track_best,
+    )
 
     out_dir = Path(args.out_dir) if args.out_dir else None
     if out_dir is not None:
@@ -285,6 +319,8 @@ def main():
     parser.add_argument("--algo", choices=["helper", "a2c"], default="helper")
     parser.add_argument("--steps", type=int, default=5000)
     parser.add_argument("--batch-size", type=int, default=256)
+    parser.add_argument("--backend", choices=["qiskit", "cudaq"], default="qiskit")
+    parser.add_argument("--device", choices=["auto", "cpu", "gpu"], default="auto")
     parser.add_argument("--alpha", type=float, default=0.5, help="weight on qrl score for unique")
     parser.add_argument("--qmg-lr", type=float, default=0.05)
     parser.add_argument("--qmg-eps", type=float, default=0.1)
@@ -319,7 +355,7 @@ def main():
     parser.add_argument("--critic-layers", type=int, default=2)
     parser.add_argument("--atom-layers", type=int, default=2)
     parser.add_argument("--bond-layers", type=int, default=1)
-    parser.add_argument("--repair-bonds", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--repair-bonds", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--track-best", action="store_true")
     parser.add_argument("--eval-every", type=int, default=50)
     parser.add_argument("--eval-shots", type=int, default=2000)

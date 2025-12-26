@@ -26,15 +26,26 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--n", type=int, default=1000)
     parser.add_argument("--mode", choices=["sqmg", "factorized"], default="sqmg")
+    parser.add_argument("--backend", choices=["qiskit", "cudaq"], default="qiskit")
     parser.add_argument("--atom-layers", type=int, default=2)
     parser.add_argument("--bond-layers", type=int, default=1)
     args = parser.parse_args()
 
     if args.mode == "sqmg":
-        gen = SQMGQiskitGenerator(
-            atom_layers=args.atom_layers,
-            bond_layers=args.bond_layers,
-        )
+        if args.backend == "cudaq":
+            try:
+                from qmg.cudaq_generator import CudaQMGGenerator  # noqa: WPS433
+            except Exception as exc:
+                raise RuntimeError("CUDA-Q backend requested but cudaq is not installed.") from exc
+            gen = CudaQMGGenerator(
+                atom_layers=args.atom_layers,
+                bond_layers=args.bond_layers,
+            )
+        else:
+            gen = SQMGQiskitGenerator(
+                atom_layers=args.atom_layers,
+                bond_layers=args.bond_layers,
+            )
     else:
         gen = QiskitQMGGenerator()
 

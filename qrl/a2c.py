@@ -233,10 +233,6 @@ def a2c_step(
     reward_avg = float(np.mean(cfg.reward_history)) if cfg.reward_history else reward_step_mean
     reward = reward_step_mean
 
-    if cfg.track_best and reward_step > cfg.best_reward_pdf:
-        cfg.best_reward_pdf = float(reward_step)
-        cfg.best_weights = gen.get_weights()
-
     if unique_valid_in_batch == 0:
         cfg.no_unique_steps += 1
     else:

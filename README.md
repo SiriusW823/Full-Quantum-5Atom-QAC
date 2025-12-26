@@ -129,6 +129,13 @@ pip install -r requirements-gpu.txt
 pip install -r requirements-dev.txt
 ```
 
+CUDA-Q: 
+```bash
+pip install -r requirements-cudaq.txt
+pip install -r requirements-dev.txt
+export CUDA_QUANTUM_PLATFORM=gpu  # optional, use CPU if unset
+```
+
 Optional analysis:
 ```bash
 pip install \"pandas>=2.3.3\"
@@ -140,10 +147,12 @@ pip install \"pandas>=2.3.3\"
 python -m pytest -q
 
 # sample molecules using SQMG
-python -m scripts.sample_qmg --mode sqmg --n 2000
+python -m scripts.sample_qmg --mode sqmg --backend qiskit --n 2000
+python -m scripts.sample_qmg --mode sqmg --backend cudaq --n 2000
 
 # train with quantum A2C (K-batch averaging + eval protocol)
-python -m scripts.train_qmg_qrl --algo a2c --steps 1000 --batch-size 256 --k-batches 2 --eval-every 50 --eval-shots 2000 --out-dir runs/a2c
+python -m scripts.train_qmg_qrl --algo a2c --backend qiskit --steps 1000 --batch-size 256 --k-batches 2 --eval-every 50 --eval-shots 2000 --out-dir runs/a2c
+python -m scripts.train_qmg_qrl --algo a2c --backend cudaq --steps 1000 --batch-size 256 --k-batches 2 --eval-every 50 --eval-shots 2000 --out-dir runs/a2c_cudaq
 ```
 
 ## DGX Quickstart (one-command training)
@@ -153,7 +162,8 @@ The one-command entrypoint trains QMG+QRL end-to-end and logs the **PDF-style re
 the script falls back to CPU.
 
 ```bash
-python -m scripts.run_one_train --episodes 300 --batch-size 256 --device auto --out runs/dgx_run --eval-every 50 --eval-shots 2000
+python -m scripts.run_one_train --episodes 300 --batch-size 256 --device auto --backend qiskit --out runs/dgx_run --eval-every 50 --eval-shots 2000
+python -m scripts.run_one_train --episodes 300 --batch-size 256 --device gpu --backend cudaq --out runs/dgx_run_cudaq --eval-every 50 --eval-shots 2000
 ```
 
 ## Training presets

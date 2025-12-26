@@ -21,7 +21,7 @@ from qmg.sqmg_circuit import EDGE_LIST, N_ATOMS, build_sqmg_hybrid_chain_circuit
 #   111 -> Cl
 _ATOM_CODE_TO_ID = {i: i for i in range(8)}
 
-_ATOM_NONE_ID = 0  # ATOM_VOCAB = ["NONE", "C", "N", "O"]
+_ATOM_NONE_ID = 0  # ATOM_VOCAB = ["NONE", "C", "O", "N", "S", "P", "F", "Cl"]
 _BOND_NONE_ID = 0  # BOND_VOCAB = ["NONE", "SINGLE", "DOUBLE", "TRIPLE"]
 
 
@@ -39,7 +39,7 @@ class SQMGQiskitGenerator:
         self,
         atom_layers: int = 2,
         bond_layers: int = 1,
-        repair_bonds: bool = True,
+        repair_bonds: bool = False,
         seed: int | None = None,
     ) -> None:
         self.atom_layers = int(atom_layers)

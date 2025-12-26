@@ -9,6 +9,7 @@ def test_run_one_train_smoke(tmp_path: Path) -> None:
         episodes=2,
         batch_size=16,
         out_dir=out_dir,
+        backend="qiskit",
         device="cpu",
         atom_layers=1,
         bond_layers=1,
