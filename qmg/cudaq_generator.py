@@ -14,6 +14,43 @@ from qmg.cudaq_kernel import build_sqmg_cudaq_kernel
 from qmg.generator import SampledBatch
 
 
+def _set_cudaq_target(device: str) -> str:
+    device = device.lower()
+    if device in ("cuda-gpu", "gpu", "nvidia"):
+        try:
+            cudaq.set_target("nvidia")
+            return "nvidia"
+        except Exception:
+            cudaq.set_target("qpp")
+            return "qpp"
+    if device in ("cuda-cpu", "cpu", "qpp"):
+        cudaq.set_target("qpp")
+        return "qpp"
+
+    # auto: try GPU then fallback
+    try:
+        cudaq.set_target("nvidia")
+        return "nvidia"
+    except Exception:
+        cudaq.set_target("qpp")
+        return "qpp"
+
+
+def _set_cudaq_seed(seed: int | None) -> None:
+    if seed is None:
+        return
+    if hasattr(cudaq, "set_random_seed"):
+        try:
+            cudaq.set_random_seed(seed)
+        except Exception:
+            pass
+    if hasattr(cudaq, "set_seed"):
+        try:
+            cudaq.set_seed(seed)
+        except Exception:
+            pass
+
+
 class CudaQMGGenerator:
     """CUDA-Q SQMG generator (3N+2 qubits) with dynamic bond reuse."""
 
@@ -38,10 +75,8 @@ class CudaQMGGenerator:
         )
         self.weights = self.rng.normal(0.0, 0.2, size=self.num_params)
 
-        try:
-            cudaq.set_target("nvidia" if device == "gpu" else "qpp")
-        except Exception:
-            cudaq.set_target("qpp")
+        _set_cudaq_seed(seed)
+        self.target = _set_cudaq_target(device)
 
     @property
     def num_weights(self) -> int:

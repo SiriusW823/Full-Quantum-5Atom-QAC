@@ -95,6 +95,16 @@ with a mild repeat penalty and a small novelty bonus for exploration. A short re
 - **Optimization**: SPSA updates for both actor and critic.
 - **Action-to-QMG**: a fixed random projection maps action → parameter delta for QMG.
 
+### Warm-start curriculum + adaptive exploration
+Training supports a **repair → strict** warm-start:
+- `--warm-start-repair N`: first `N` episodes run with `repair_bonds=True` (reward_pdf),
+  then automatically switch to strict mode (`repair_bonds=False`, reward_raw_pdf).
+- Eval CSV records the phase per eval point and logs `sigma_max`, `k_batches`, and `patience`.
+
+Adaptive exploration (strict phase only):
+- If `reward_raw_pdf_eval` stays below `--adapt-threshold` for `--adapt-window` evals,
+  then `sigma_max`, `k_batches`, and `patience` are increased automatically.
+
 ### Optimized composite score
 The optimized PDF-style composite is computed per batch:
 
@@ -151,8 +161,12 @@ python -m scripts.sample_qmg --mode sqmg --backend qiskit --n 2000
 python -m scripts.sample_qmg --mode sqmg --backend cudaq --n 2000
 
 # train with quantum A2C (K-batch averaging + eval protocol)
-python -m scripts.train_qmg_qrl --algo a2c --backend qiskit --steps 1000 --batch-size 256 --k-batches 2 --eval-every 50 --eval-shots 2000 --out-dir runs/a2c
-python -m scripts.train_qmg_qrl --algo a2c --backend cudaq --steps 1000 --batch-size 256 --k-batches 2 --eval-every 50 --eval-shots 2000 --out-dir runs/a2c_cudaq
+python -m scripts.train_qmg_qrl --algo a2c --backend qiskit --steps 1000 --batch-size 256 \
+  --k-batches 2 --eval-every 50 --eval-shots 2000 --out-dir runs/a2c \
+  --warm-start-repair 200 --adaptive-exploration
+python -m scripts.train_qmg_qrl --algo a2c --backend cudaq --steps 1000 --batch-size 256 \
+  --k-batches 2 --eval-every 50 --eval-shots 2000 --out-dir runs/a2c_cudaq \
+  --warm-start-repair 200 --adaptive-exploration
 ```
 
 ## DGX Quickstart (one-command training)
@@ -163,7 +177,8 @@ the script falls back to CPU.
 
 ```bash
 python -m scripts.run_one_train --episodes 300 --batch-size 256 --device auto --backend qiskit --out runs/dgx_run --eval-every 50 --eval-shots 2000
-python -m scripts.run_one_train --episodes 300 --batch-size 256 --device gpu --backend cudaq --out runs/dgx_run_cudaq --eval-every 50 --eval-shots 2000
+python -m scripts.run_one_train --episodes 300 --batch-size 256 --device gpu --backend cudaq --out runs/dgx_run_cudaq --eval-every 50 --eval-shots 2000 \
+  --warm-start-repair 200 --adaptive-exploration
 ```
 
 ## Training presets

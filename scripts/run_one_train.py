@@ -4,6 +4,7 @@ import argparse
 import csv
 import json
 import os
+import random
 import subprocess
 import sys
 from pathlib import Path
@@ -25,6 +26,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from env import FiveAtomMolEnv  # noqa: E402
 from qmg.sqmg_generator import SQMGQiskitGenerator  # noqa: E402
 
 try:  # optional CUDA-Q backend
@@ -32,8 +34,8 @@ try:  # optional CUDA-Q backend
 except Exception:  # pragma: no cover
     CudaQMGGenerator = None
 from qrl.a2c import A2CConfig, a2c_step, build_state  # noqa: E402
-from qrl.actor import QiskitQuantumActor  # noqa: E402
-from qrl.critic import QiskitQuantumCritic  # noqa: E402
+from qrl.actor import CudaQQuantumActor, QiskitQuantumActor  # noqa: E402
+from qrl.critic import CudaQQuantumCritic, QiskitQuantumCritic  # noqa: E402
 
 
 def detect_num_gpus() -> int:
@@ -57,6 +59,8 @@ def detect_num_gpus() -> int:
 
 def resolve_device(device: str, gpus: int) -> Tuple[str, int]:
     device = device.lower()
+    if device in ("cuda-cpu", "cuda-gpu"):
+        device = "gpu" if device.endswith("gpu") else "cpu"
     if device == "cpu":
         return "cpu", 0
     if device == "gpu":
@@ -106,6 +110,111 @@ def configure_generator_backend(gen: SQMGQiskitGenerator, backend: AerSimulator)
     gen._compiled = transpile(gen.base_circuit, backend, optimization_level=1)
 
 
+def _set_global_seeds(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+
+
+def _snapshot_env(env: FiveAtomMolEnv) -> dict:
+    return {
+        "samples": env.metrics.samples,
+        "valid_count": env.metrics.valid_count,
+        "unique_valid_count": env.metrics.unique_valid_count,
+        "raw_valid_count": env.metrics.raw_valid_count,
+        "raw_unique_valid_count": env.metrics.raw_unique_valid_count,
+        "seen_smiles": set(env.seen_smiles),
+        "seen_smiles_raw": set(env.seen_smiles_raw),
+    }
+
+
+def _restore_env(env: FiveAtomMolEnv, snap: dict) -> None:
+    env.metrics.samples = int(snap["samples"])
+    env.metrics.valid_count = int(snap["valid_count"])
+    env.metrics.unique_valid_count = int(snap["unique_valid_count"])
+    env.metrics.raw_valid_count = int(snap["raw_valid_count"])
+    env.metrics.raw_unique_valid_count = int(snap["raw_unique_valid_count"])
+    env.samples = env.metrics.samples
+    env.valid_count = env.metrics.valid_count
+    env.unique_valid_count = env.metrics.unique_valid_count
+    env.raw_valid_count = env.metrics.raw_valid_count
+    env.raw_unique_valid_count = env.metrics.raw_unique_valid_count
+    env.seen_smiles = set(snap["seen_smiles"])
+    env.seen_smiles_raw = set(snap["seen_smiles_raw"])
+
+
+def _eval_batch(batch, repair_bonds: bool) -> dict:
+    eval_env = FiveAtomMolEnv(repair_bonds=repair_bonds)
+    for atoms, bonds in zip(batch.atoms, batch.bonds):
+        eval_env.build_smiles_from_actions(atoms, bonds)
+    return eval_env.stats()
+
+
+def _plot_eval(eval_rows: List[dict], out_dir: Path, warm_start_repair: int) -> None:
+    if not eval_rows:
+        return
+    episodes = [row["episode"] for row in eval_rows]
+    reward_raw = [row["reward_raw_pdf_eval"] for row in eval_rows]
+    reward_rep = [row["reward_pdf_eval"] for row in eval_rows]
+    validity_raw = [row["validity_raw_pdf_eval"] for row in eval_rows]
+    validity_rep = [row["validity_pdf_eval"] for row in eval_rows]
+    uniq_raw = [row["uniqueness_raw_pdf_eval"] for row in eval_rows]
+    uniq_rep = [row["uniqueness_pdf_eval"] for row in eval_rows]
+
+    best_raw = []
+    best = 0.0
+    for r in reward_raw:
+        best = max(best, r)
+        best_raw.append(best)
+
+    if warm_start_repair > 0:
+        vline = warm_start_repair
+    else:
+        vline = None
+
+    plt.figure(figsize=(10, 4))
+    plt.plot(episodes, reward_raw, label="reward_raw_pdf_eval")
+    plt.plot(episodes, reward_rep, label="reward_pdf_eval")
+    plt.plot(episodes, best_raw, label="best_raw_so_far")
+    if vline is not None:
+        plt.axvline(vline, color="k", linestyle="--", alpha=0.4)
+    plt.xlabel("Episode")
+    plt.ylabel("Reward")
+    plt.title("Eval Reward (PDF)")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(out_dir / "reward_eval.png", dpi=150)
+    plt.close()
+
+    plt.figure(figsize=(10, 4))
+    plt.plot(episodes, validity_raw, label="validity_raw_pdf_eval")
+    plt.plot(episodes, validity_rep, label="validity_pdf_eval")
+    if vline is not None:
+        plt.axvline(vline, color="k", linestyle="--", alpha=0.4)
+    plt.xlabel("Episode")
+    plt.ylabel("Validity")
+    plt.title("Eval Validity (PDF)")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(out_dir / "validity_eval.png", dpi=150)
+    plt.close()
+
+    plt.figure(figsize=(10, 4))
+    plt.plot(episodes, uniq_raw, label="uniqueness_raw_pdf_eval")
+    plt.plot(episodes, uniq_rep, label="uniqueness_pdf_eval")
+    if vline is not None:
+        plt.axvline(vline, color="k", linestyle="--", alpha=0.4)
+    plt.xlabel("Episode")
+    plt.ylabel("Uniqueness")
+    plt.title("Eval Uniqueness (PDF)")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(out_dir / "uniqueness_eval.png", dpi=150)
+    plt.close()
+
+
 def run_one_train(
     episodes: int = 300,
     batch_size: int = 256,
@@ -145,12 +254,19 @@ def run_one_train(
     track_best: bool = False,
     eval_every: int = 50,
     eval_shots: int = 2000,
+    warm_start_repair: int = 0,
+    adaptive_exploration: bool = True,
+    adapt_threshold: float = 0.01,
+    adapt_window: int = 5,
 ) -> List[Dict[str, float]]:
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
     metrics_path = out_path / "metrics.csv"
     plot_path = out_path / "reward.png"
+    eval_rows: List[dict] = []
+    strict_eval_rewards: List[float] = []
 
+    _set_global_seeds(seed)
     rng = np.random.default_rng(seed)
 
     resolved_device, detected_gpus = resolve_device(device, gpus)
@@ -164,6 +280,15 @@ def run_one_train(
             device=resolved_device,
             seed=seed,
         )
+        try:
+            import cudaq  # noqa: WPS433
+
+            print(
+                f"[info] cudaq_version={getattr(cudaq, '__version__', 'unknown')} "
+                f"target={getattr(qmg, 'target', 'unknown')} device={resolved_device}"
+            )
+        except Exception:
+            print("[warn] cudaq backend selected but unable to query cudaq details.")
     else:
         qmg = SQMGQiskitGenerator(
             atom_layers=atom_layers,
@@ -182,21 +307,38 @@ def run_one_train(
             print("[info] Using Aer CPU backend")
 
     state_dim = build_state(qmg).size
-    actor = QiskitQuantumActor(
-        state_dim=state_dim,
-        n_qubits=actor_qubits,
-        n_layers=actor_layers,
-        action_dim=action_dim,
-        sigma_min=sigma_min,
-        sigma_max=sigma_max,
-        seed=seed,
-    )
-    critic = QiskitQuantumCritic(
-        state_dim=state_dim,
-        n_qubits=critic_qubits,
-        n_layers=critic_layers,
-        seed=seed + 1,
-    )
+    if backend == "cudaq":
+        actor = CudaQQuantumActor(
+            state_dim=state_dim,
+            n_qubits=actor_qubits,
+            n_layers=actor_layers,
+            action_dim=action_dim,
+            sigma_min=sigma_min,
+            sigma_max=sigma_max,
+            seed=seed,
+        )
+        critic = CudaQQuantumCritic(
+            state_dim=state_dim,
+            n_qubits=critic_qubits,
+            n_layers=critic_layers,
+            seed=seed + 1,
+        )
+    else:
+        actor = QiskitQuantumActor(
+            state_dim=state_dim,
+            n_qubits=actor_qubits,
+            n_layers=actor_layers,
+            action_dim=action_dim,
+            sigma_min=sigma_min,
+            sigma_max=sigma_max,
+            seed=seed,
+        )
+        critic = QiskitQuantumCritic(
+            state_dim=state_dim,
+            n_qubits=critic_qubits,
+            n_layers=critic_layers,
+            seed=seed + 1,
+        )
 
     proj = rng.normal(0.0, 1.0, size=(qmg.num_weights, action_dim))
     proj /= np.sqrt(action_dim)
@@ -228,6 +370,7 @@ def run_one_train(
     rows: List[Dict[str, float]] = []
     fieldnames = [
         "episode",
+        "phase",
         "reward_step",
         "validity_step",
         "uniqueness_step",
@@ -242,8 +385,8 @@ def run_one_train(
     eval_path = out_path / "eval.csv"
     if not eval_path.exists():
         eval_path.write_text(
-            "episode,reward_pdf_eval,reward_raw_pdf_eval,validity_pdf_eval,uniqueness_pdf_eval,"
-            "validity_raw_pdf_eval,uniqueness_raw_pdf_eval\n"
+            "episode,phase,reward_pdf_eval,reward_raw_pdf_eval,validity_pdf_eval,uniqueness_pdf_eval,"
+            "validity_raw_pdf_eval,uniqueness_raw_pdf_eval,sigma_max,k_batches,patience,eval_seed\n"
         )
     best_json_path = out_path / "best_eval.json"
 
@@ -251,7 +394,14 @@ def run_one_train(
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
 
+        prev_phase = None
         for ep in range(1, episodes + 1):
+            phase = "repair" if ep <= warm_start_repair else "strict"
+            qmg.env.repair_bonds = phase == "repair"
+            if track_best and prev_phase == "repair" and phase == "strict":
+                cfg.best_reward_pdf = 0.0
+                cfg.best_weights = None
+                print("[info] Switched to strict phase; reset best checkpoint tracking.")
             state = build_state(qmg)
             result = a2c_step(
                 gen=qmg,
@@ -267,6 +417,7 @@ def run_one_train(
             reward_step = float(result.get("reward_step", result["validity_step"] * result["uniqueness_step"]))
             row = {
                 "episode": ep,
+                "phase": phase,
                 "reward_step": reward_step,
                 "validity_step": float(result["validity_step"]),
                 "uniqueness_step": float(result["uniqueness_step"]),
@@ -297,34 +448,76 @@ def run_one_train(
 
             if eval_every > 0 and ep % eval_every == 0:
                 weights_snapshot = qmg.get_weights()
-                _ = qmg.sample_actions(batch_size=eval_shots)
-                stats = qmg.env.stats()
-                reward_pdf_eval = stats["reward_pdf"]
-                reward_raw_pdf_eval = stats["reward_raw_pdf"]
-                validity_pdf_eval = stats["validity_pdf"]
-                uniqueness_pdf_eval = stats["uniqueness_pdf"]
-                validity_raw_pdf_eval = stats["validity_raw_pdf"]
-                uniqueness_raw_pdf_eval = stats["uniqueness_raw_pdf"]
+                env_snap = _snapshot_env(qmg.env)
+                eval_batch = qmg.sample_actions(batch_size=eval_shots)
+                eval_stats = _eval_batch(eval_batch, repair_bonds=(phase == "repair"))
+                _restore_env(qmg.env, env_snap)
+
+                reward_pdf_eval = eval_stats["reward_pdf"]
+                reward_raw_pdf_eval = eval_stats["reward_raw_pdf"]
+                validity_pdf_eval = eval_stats["validity_pdf"]
+                uniqueness_pdf_eval = eval_stats["uniqueness_pdf"]
+                validity_raw_pdf_eval = eval_stats["validity_raw_pdf"]
+                uniqueness_raw_pdf_eval = eval_stats["uniqueness_raw_pdf"]
                 print(
                     f"[eval {ep}] reward_pdf_eval={reward_pdf_eval:.6f} "
                     f"reward_raw_pdf_eval={reward_raw_pdf_eval:.6f} "
                     f"validity_pdf_eval={validity_pdf_eval:.4f} "
-                    f"uniqueness_pdf_eval={uniqueness_pdf_eval:.4f}"
+                    f"uniqueness_pdf_eval={uniqueness_pdf_eval:.4f} "
+                    f"phase={phase}"
                 )
+
+                if adaptive_exploration and phase == "strict":
+                    strict_eval_rewards.append(float(reward_raw_pdf_eval))
+                    if len(strict_eval_rewards) > adapt_window:
+                        strict_eval_rewards = strict_eval_rewards[-adapt_window:]
+                    if len(strict_eval_rewards) == adapt_window and all(
+                        r < adapt_threshold for r in strict_eval_rewards
+                    ):
+                        cfg.sigma_max = min(cfg.sigma_max * 1.2, 2.0)
+                        cfg.patience = min(cfg.patience + 20, 200)
+                        cfg.k_batches = min(cfg.k_batches + 1, 8)
+                        actor.sigma_max = cfg.sigma_max
+                        if cfg.sigma_current is not None:
+                            cfg.sigma_current = min(cfg.sigma_current, cfg.sigma_max)
+                        print(
+                            "[adapt] reward below threshold: "
+                            f"sigma_max={cfg.sigma_max:.3f} "
+                            f"k_batches={cfg.k_batches} "
+                            f"patience={cfg.patience}"
+                        )
+
+                eval_row = {
+                    "episode": ep,
+                    "phase": phase,
+                    "reward_pdf_eval": reward_pdf_eval,
+                    "reward_raw_pdf_eval": reward_raw_pdf_eval,
+                    "validity_pdf_eval": validity_pdf_eval,
+                    "uniqueness_pdf_eval": uniqueness_pdf_eval,
+                    "validity_raw_pdf_eval": validity_raw_pdf_eval,
+                    "uniqueness_raw_pdf_eval": uniqueness_raw_pdf_eval,
+                    "sigma_max": cfg.sigma_max,
+                    "k_batches": cfg.k_batches,
+                    "patience": cfg.patience,
+                    "eval_seed": seed,
+                }
+                eval_rows.append(eval_row)
                 with eval_path.open("a", newline="") as handle:
                     handle.write(
-                        f"{ep},{reward_pdf_eval:.6f},{reward_raw_pdf_eval:.6f},"
+                        f"{ep},{phase},{reward_pdf_eval:.6f},{reward_raw_pdf_eval:.6f},"
                         f"{validity_pdf_eval:.6f},{uniqueness_pdf_eval:.6f},"
-                        f"{validity_raw_pdf_eval:.6f},{uniqueness_raw_pdf_eval:.6f}\n"
+                        f"{validity_raw_pdf_eval:.6f},{uniqueness_raw_pdf_eval:.6f},"
+                        f"{cfg.sigma_max:.6f},{cfg.k_batches},{cfg.patience},{seed}\n"
                     )
 
                 if track_best:
-                    metric_for_best = reward_raw_pdf_eval if not repair_bonds else reward_pdf_eval
+                    metric_for_best = reward_raw_pdf_eval if phase == "strict" else reward_pdf_eval
                     if cfg.best_weights is None or metric_for_best > cfg.best_reward_pdf:
                         cfg.best_reward_pdf = metric_for_best
                         cfg.best_weights = weights_snapshot.copy()
                         best_json = {
                             "episode": ep,
+                            "phase": phase,
                             "reward_pdf_eval": reward_pdf_eval,
                             "reward_raw_pdf_eval": reward_raw_pdf_eval,
                             "validity_pdf_eval": validity_pdf_eval,
@@ -332,11 +525,16 @@ def run_one_train(
                             "validity_raw_pdf_eval": validity_raw_pdf_eval,
                             "uniqueness_raw_pdf_eval": uniqueness_raw_pdf_eval,
                             "metric_for_best": metric_for_best,
+                            "sigma_max": cfg.sigma_max,
+                            "k_batches": cfg.k_batches,
+                            "patience": cfg.patience,
                         }
                         best_json_path.write_text(json.dumps(best_json, indent=2))
                         np.save(out_path / "best_weights.npy", cfg.best_weights)
 
                 qmg.set_weights(weights_snapshot)
+
+            prev_phase = phase
 
     rewards = [r["reward_step"] for r in rows]
     if rewards:
@@ -349,6 +547,8 @@ def run_one_train(
         plt.tight_layout()
         plt.savefig(plot_path, dpi=150)
         plt.close()
+
+    _plot_eval(eval_rows, out_path, warm_start_repair)
 
     tail = rewards[-50:] if len(rewards) >= 50 else rewards
     mean_reward = float(np.mean(tail)) if tail else 0.0
@@ -369,7 +569,11 @@ def main() -> None:
     parser.add_argument("--episodes", type=int, default=300)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--out", type=str, default="runs/dgx_run")
-    parser.add_argument("--device", choices=["auto", "cpu", "gpu"], default="auto")
+    parser.add_argument(
+        "--device",
+        choices=["auto", "cpu", "gpu", "cuda-cpu", "cuda-gpu"],
+        default="auto",
+    )
     parser.add_argument("--backend", choices=["qiskit", "cudaq"], default="qiskit")
     parser.add_argument("--gpus", type=int, default=0)
     parser.add_argument("--seed", type=int, default=123)
@@ -404,6 +608,14 @@ def main() -> None:
     parser.add_argument("--track-best", action="store_true")
     parser.add_argument("--eval-every", type=int, default=50)
     parser.add_argument("--eval-shots", type=int, default=2000)
+    parser.add_argument("--warm-start-repair", type=int, default=0)
+    parser.add_argument(
+        "--adaptive-exploration",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    parser.add_argument("--adapt-threshold", type=float, default=0.01)
+    parser.add_argument("--adapt-window", type=int, default=5)
 
     args = parser.parse_args()
     run_one_train(
@@ -445,6 +657,10 @@ def main() -> None:
         track_best=args.track_best,
         eval_every=args.eval_every,
         eval_shots=args.eval_shots,
+        warm_start_repair=args.warm_start_repair,
+        adaptive_exploration=args.adaptive_exploration,
+        adapt_threshold=args.adapt_threshold,
+        adapt_window=args.adapt_window,
     )
 
 

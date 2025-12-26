@@ -12,6 +12,10 @@ from qiskit import QuantumCircuit
 from qiskit.circuit import ParameterVector
 from qiskit.quantum_info import Statevector
 
+try:  # optional CUDA-Q backend
+    import cudaq
+except Exception:  # pragma: no cover - optional dependency
+    cudaq = None
 
 def _state_to_angles(state: np.ndarray, n_qubits: int) -> np.ndarray:
     state = np.asarray(state, dtype=float).flatten()
@@ -36,6 +40,19 @@ def _z_expectations_from_statevector(statevector: Statevector, n_qubits: int) ->
             else:
                 z[q] += p
     return z
+
+
+def _z_expectations_from_counts(
+    counts: dict[str, int], n_qubits: int, shots: int
+) -> np.ndarray:
+    total = max(shots, 1)
+    z = np.zeros(n_qubits, dtype=float)
+    for bitstring, count in counts.items():
+        bits = bitstring.replace(" ", "")
+        for q in range(n_qubits):
+            bit = bits[-1 - q]
+            z[q] += (1.0 if bit == "0" else -1.0) * count
+    return z / total
 
 
 def _softplus(x: float) -> float:
@@ -132,4 +149,86 @@ class QiskitQuantumActor:
         return mu, sigma
 
 
-__all__ = ["QiskitQuantumActor", "gaussian_logprob", "gaussian_entropy"]
+class CudaQQuantumActor:
+    """CUDA-Q actor that outputs (mu, sigma) for a diagonal Gaussian policy."""
+
+    def __init__(
+        self,
+        state_dim: int,
+        n_qubits: int = 8,
+        n_layers: int = 2,
+        action_dim: int = 16,
+        sigma_min: float = 0.05,
+        sigma_max: float = 0.50,
+        shots: int = 256,
+        seed: int | None = None,
+    ) -> None:
+        if cudaq is None:
+            raise RuntimeError("cudaq is not available")
+        self.state_dim = int(state_dim)
+        self.n_qubits = int(n_qubits)
+        self.n_layers = int(n_layers)
+        self.action_dim = int(action_dim)
+        self.sigma_min = float(sigma_min)
+        self.sigma_max = float(sigma_max)
+        self.shots = int(shots)
+        self.rng = np.random.default_rng(seed)
+
+        self.weights = self.rng.normal(0.0, 0.2, size=self.n_layers * self.n_qubits * 2)
+        self.proj = self.rng.normal(0.0, 1.0, size=(self.action_dim, self.n_qubits))
+        self.proj /= np.sqrt(self.n_qubits)
+        self.proj_sigma = self.rng.normal(0.0, 1.0, size=(self.n_qubits,))
+        self.proj_sigma /= np.sqrt(self.n_qubits)
+
+        @cudaq.kernel
+        def kernel(input_params: List[float], weights: List[float]):
+            q = cudaq.qvector(self.n_qubits)
+            for i in range(self.n_qubits):
+                cudaq.ry(input_params[i], q[i])
+                cudaq.rz(input_params[i], q[i])
+            w_idx = 0
+            for _ in range(self.n_layers):
+                for qb in range(self.n_qubits):
+                    cudaq.ry(weights[w_idx], q[qb])
+                    cudaq.rz(weights[w_idx + 1], q[qb])
+                    w_idx += 2
+                for qb in range(self.n_qubits - 1):
+                    cudaq.x.ctrl(q[qb], q[qb + 1])
+                if self.n_qubits > 1:
+                    cudaq.x.ctrl(q[self.n_qubits - 1], q[0])
+            for qb in range(self.n_qubits):
+                cudaq.measure(q[qb])
+
+        self.kernel = kernel
+
+    @property
+    def num_weights(self) -> int:
+        return len(self.weights)
+
+    def get_weights(self) -> np.ndarray:
+        return np.array(self.weights, copy=True)
+
+    def set_weights(self, new_w: np.ndarray) -> None:
+        assert new_w.shape == self.weights.shape
+        self.weights = np.array(new_w, copy=True)
+
+    def forward(self, state: np.ndarray) -> Tuple[np.ndarray, float]:
+        angles = _state_to_angles(state, self.n_qubits)
+        counts = cudaq.sample(
+            self.kernel, angles.tolist(), self.weights.tolist(), shots=self.shots
+        )
+        count_map = counts.counts() if hasattr(counts, "counts") else counts
+        z = _z_expectations_from_counts(count_map, self.n_qubits, self.shots)
+        mu = np.tanh(self.proj @ z)
+        log_sigma = float(self.proj_sigma @ z)
+        sigma = _softplus(log_sigma)
+        sigma = float(np.clip(sigma, self.sigma_min, self.sigma_max))
+        return mu, sigma
+
+
+__all__ = [
+    "QiskitQuantumActor",
+    "CudaQQuantumActor",
+    "gaussian_logprob",
+    "gaussian_entropy",
+]

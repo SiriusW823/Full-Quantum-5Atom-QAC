@@ -10,7 +10,12 @@ from qiskit import QuantumCircuit
 from qiskit.circuit import ParameterVector
 from qiskit.quantum_info import Statevector
 
-from qrl.actor import _state_to_angles, _z_expectations_from_statevector
+from qrl.actor import _state_to_angles, _z_expectations_from_statevector, _z_expectations_from_counts
+
+try:  # optional CUDA-Q backend
+    import cudaq
+except Exception:  # pragma: no cover - optional dependency
+    cudaq = None
 
 
 class QiskitQuantumCritic:
@@ -76,4 +81,71 @@ class QiskitQuantumCritic:
         return float(np.clip(val, 0.0, 1.0))
 
 
-__all__ = ["QiskitQuantumCritic"]
+class CudaQQuantumCritic:
+    """CUDA-Q critic that outputs a scalar value in [0, 1]."""
+
+    def __init__(
+        self,
+        state_dim: int,
+        n_qubits: int = 8,
+        n_layers: int = 2,
+        shots: int = 256,
+        seed: int | None = None,
+    ) -> None:
+        if cudaq is None:
+            raise RuntimeError("cudaq is not available")
+        self.state_dim = int(state_dim)
+        self.n_qubits = int(n_qubits)
+        self.n_layers = int(n_layers)
+        self.shots = int(shots)
+        self.rng = np.random.default_rng(seed)
+
+        self.weights = self.rng.normal(0.0, 0.2, size=self.n_layers * self.n_qubits * 2)
+        self.proj = self.rng.normal(0.0, 1.0, size=(self.n_qubits,))
+        self.proj /= np.sqrt(self.n_qubits)
+
+        @cudaq.kernel
+        def kernel(input_params: list[float], weights: list[float]):
+            q = cudaq.qvector(self.n_qubits)
+            for i in range(self.n_qubits):
+                cudaq.ry(input_params[i], q[i])
+                cudaq.rz(input_params[i], q[i])
+            w_idx = 0
+            for _ in range(self.n_layers):
+                for qb in range(self.n_qubits):
+                    cudaq.ry(weights[w_idx], q[qb])
+                    cudaq.rz(weights[w_idx + 1], q[qb])
+                    w_idx += 2
+                for qb in range(self.n_qubits - 1):
+                    cudaq.x.ctrl(q[qb], q[qb + 1])
+                if self.n_qubits > 1:
+                    cudaq.x.ctrl(q[self.n_qubits - 1], q[0])
+            for qb in range(self.n_qubits):
+                cudaq.measure(q[qb])
+
+        self.kernel = kernel
+
+    @property
+    def num_weights(self) -> int:
+        return len(self.weights)
+
+    def get_weights(self) -> np.ndarray:
+        return np.array(self.weights, copy=True)
+
+    def set_weights(self, new_w: np.ndarray) -> None:
+        assert new_w.shape == self.weights.shape
+        self.weights = np.array(new_w, copy=True)
+
+    def forward(self, state: np.ndarray) -> float:
+        angles = _state_to_angles(state, self.n_qubits)
+        counts = cudaq.sample(
+            self.kernel, angles.tolist(), self.weights.tolist(), shots=self.shots
+        )
+        count_map = counts.counts() if hasattr(counts, "counts") else counts
+        z = _z_expectations_from_counts(count_map, self.n_qubits, self.shots)
+        raw = float(self.proj @ z)
+        val = (np.tanh(raw) + 1.0) * 0.5
+        return float(np.clip(val, 0.0, 1.0))
+
+
+__all__ = ["QiskitQuantumCritic", "CudaQQuantumCritic"]
