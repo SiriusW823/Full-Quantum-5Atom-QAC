@@ -68,11 +68,6 @@ def build_sqmg_cudaq_kernel(
         )
         ccx_k.control(cx_k, ccx_c0, ccx_c1, ccx_t)
 
-        c3x_k, c3_c0, c3_c1, c3_c2, c3_t = cudaq.make_kernel(
-            cudaq.qubit, cudaq.qubit, cudaq.qubit, cudaq.qubit
-        )
-        c3x_k.control(ccx_k, c3_c0, c3_c1, c3_c2, c3_t)
-
         def _x(target):
             kernel.x(target)
 
