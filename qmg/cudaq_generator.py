@@ -115,23 +115,34 @@ class CudaQMGGenerator:
 
     def _get_register_counts(self, result, name: str) -> Dict[str, int]:
         try:
-            return result.counts(name)
-        except Exception:
-            pass
-        try:
-            return result.get_counts(name)
-        except Exception:
-            pass
-        try:
-            counts = result.counts()
-        except Exception:
-            pass
-        else:
-            if isinstance(counts, dict) and name in counts:
-                return counts[name]
-        raise RuntimeError(f"Unable to access CUDA-Q counts for register '{name}'")
+            sub = result.get_register_counts(name)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to read register counts: name={name}, result_type={type(result)}"
+            ) from exc
 
-    def _expand_counts(self, counts: Dict[str, int], shots: int) -> List[str]:
+        try:
+            return {k: int(v) for k, v in sub.items()}
+        except Exception:
+            pass
+        try:
+            dct = dict(sub)
+            return {k: int(v) for k, v in dct.items()}
+        except Exception:
+            pass
+        try:
+            keys = list(sub)
+            out: Dict[str, int] = {}
+            for k in keys:
+                out[k] = int(sub[k])
+            return out
+        except Exception as exc:
+            raise RuntimeError(
+                "Failed to read register counts: "
+                f"name={name}, result_type={type(result)}, sub_type={type(sub)}"
+            ) from exc
+
+    def _expand_counts_1bit(self, counts: Dict[str, int], shots: int) -> List[str]:
         samples: List[str] = []
         for bitstring, count in counts.items():
             bits = str(bitstring).strip().replace(" ", "")
@@ -141,12 +152,9 @@ class CudaQMGGenerator:
             samples.extend([bit] * int(count))
         if not samples:
             return ["0"] * shots
-        self.rng.shuffle(samples)
         if len(samples) < shots:
             samples.extend(["0"] * (shots - len(samples)))
-        else:
-            samples = samples[:shots]
-        return samples
+        return samples[:shots]
 
     def _reconstruct_bitstrings(self, result, shots: int) -> List[str]:
         bond_names = self._bond_reg_names()
@@ -154,14 +162,8 @@ class CudaQMGGenerator:
         reg_order = bond_names + atom_names
         reg_bits: Dict[str, List[str]] = {}
         for name in reg_order:
-            counts = self._get_register_counts(result, name)
-            try:
-                counts_map = dict(counts)
-            except Exception as exc:
-                raise RuntimeError(
-                    f"CUDA-Q counts for register '{name}' must be dict-like, got {type(counts)}"
-                ) from exc
-            reg_bits[name] = self._expand_counts(counts_map, shots)
+            counts_map = self._get_register_counts(result, name)
+            reg_bits[name] = self._expand_counts_1bit(counts_map, shots)
 
         samples: List[str] = []
         for shot_idx in range(shots):

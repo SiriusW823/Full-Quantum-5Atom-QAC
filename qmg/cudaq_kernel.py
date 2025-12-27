@@ -81,7 +81,7 @@ def build_sqmg_cudaq_kernel(
             kernel.reset(target)
 
         def _mz(target, reg_name):
-            kernel.mz(target, reg_name)
+            kernel.mz(target, str(reg_name))
 
         def _mcx(controls, target):
             if len(controls) == 1:
