@@ -186,34 +186,73 @@ class CudaQQuantumActor:
         self.proj /= np.sqrt(self.n_qubits)
         self.proj_sigma = self.rng.normal(0.0, 1.0, size=(self.n_qubits,))
         self.proj_sigma /= np.sqrt(self.n_qubits)
-
-        mz = getattr(self._cudaq, "mz", None) or getattr(self._cudaq, "measure", None)
-        if mz is None:
-            raise RuntimeError("cudaq measurement gate not available")
-        ry = self._cudaq.ry
-        rz = self._cudaq.rz
-        x = self._cudaq.x
-
-        @self._cudaq.kernel
-        def kernel(input_params: List[float], weights: List[float]):
-            q = self._cudaq.qvector(self.n_qubits)
-            for i in range(self.n_qubits):
-                ry(input_params[i], q[i])
-                rz(input_params[i], q[i])
-            w_idx = 0
-            for _ in range(self.n_layers):
-                for qb in range(self.n_qubits):
-                    ry(weights[w_idx], q[qb])
-                    rz(weights[w_idx + 1], q[qb])
-                    w_idx += 2
-                for qb in range(self.n_qubits - 1):
-                    x.ctrl(q[qb], q[qb + 1])
-                if self.n_qubits > 1:
-                    x.ctrl(q[self.n_qubits - 1], q[0])
+        self.kernel, self.input_params, self.weight_params = self._cudaq.make_kernel(
+            list, list
+        )
+        q = self.kernel.qalloc(self.n_qubits)
+        for i in range(self.n_qubits):
+            self.kernel.ry(self.input_params[i], q[i])
+            self.kernel.rz(self.input_params[i], q[i])
+        w_idx = 0
+        for _ in range(self.n_layers):
             for qb in range(self.n_qubits):
-                mz(q[qb])
+                self.kernel.ry(self.weight_params[w_idx], q[qb])
+                self.kernel.rz(self.weight_params[w_idx + 1], q[qb])
+                w_idx += 2
+            for qb in range(self.n_qubits - 1):
+                self.kernel.cx(q[qb], q[qb + 1])
+            if self.n_qubits > 1:
+                self.kernel.cx(q[self.n_qubits - 1], q[0])
+        for qb in range(self.n_qubits):
+            self.kernel.mz(q[qb], f"q{qb:02d}")
 
-        self.kernel = kernel
+    def _get_register_counts(self, result, name: str) -> dict[str, int]:
+        try:
+            sub = result.get_register_counts(name)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to read register counts: name={name}, result_type={type(result)}"
+            ) from exc
+
+        try:
+            return {k: int(v) for k, v in sub.items()}
+        except Exception:
+            pass
+        try:
+            dct = dict(sub)
+            return {k: int(v) for k, v in dct.items()}
+        except Exception:
+            pass
+        try:
+            keys = list(sub)
+            out: dict[str, int] = {}
+            for k in keys:
+                out[k] = int(sub[k])
+            return out
+        except Exception as exc:
+            raise RuntimeError(
+                "Failed to read register counts: "
+                f"name={name}, result_type={type(result)}, sub_type={type(sub)}"
+            ) from exc
+
+    def _z_expectations_from_registers(self, result) -> np.ndarray:
+        z = np.zeros(self.n_qubits, dtype=float)
+        total = max(self.shots, 1)
+        for qb in range(self.n_qubits):
+            counts = self._get_register_counts(result, f"q{qb:02d}")
+            zeros = 0
+            ones = 0
+            for bitstring, count in counts.items():
+                bits = str(bitstring).strip().replace(" ", "")
+                if bits.startswith("0b"):
+                    bits = bits[2:]
+                bit = bits[-1] if bits else "0"
+                if bit == "0":
+                    zeros += count
+                else:
+                    ones += count
+            z[qb] = (zeros - ones) / total
+        return z
 
     @property
     def num_weights(self) -> int:
@@ -228,11 +267,10 @@ class CudaQQuantumActor:
 
     def forward(self, state: np.ndarray) -> Tuple[np.ndarray, float]:
         angles = _state_to_angles(state, self.n_qubits)
-        counts = self._cudaq.sample(
+        result = self._cudaq.sample(
             self.kernel, angles.tolist(), self.weights.tolist(), shots_count=self.shots
         )
-        count_map = counts.counts() if hasattr(counts, "counts") else counts
-        z = _z_expectations_from_counts(count_map, self.n_qubits, self.shots)
+        z = self._z_expectations_from_registers(result)
         mu = np.tanh(self.proj @ z)
         log_sigma = float(self.proj_sigma @ z)
         sigma = _softplus(log_sigma)
