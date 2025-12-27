@@ -45,16 +45,14 @@ def _set_cudaq_target(cudaq_mod, device: str) -> str:
 def _set_cudaq_seed(cudaq_mod, seed: int | None) -> None:
     if seed is None:
         return
-    if hasattr(cudaq_mod, "set_random_seed"):
-        try:
-            cudaq_mod.set_random_seed(seed)
-        except Exception:
-            pass
-    if hasattr(cudaq_mod, "set_seed"):
-        try:
-            cudaq_mod.set_seed(seed)
-        except Exception:
-            pass
+    try:
+        cudaq_mod.set_random_seed(seed)
+    except Exception:
+        pass
+    try:
+        cudaq_mod.set_seed(seed)
+    except Exception:
+        pass
 
 
 class CudaQMGGenerator:
@@ -156,14 +154,37 @@ class CudaQMGGenerator:
             samples.extend(["0"] * (shots - len(samples)))
         return samples[:shots]
 
+    def _normalize_sequence_1bit(self, seq, shots: int) -> List[str]:
+        try:
+            entries = list(seq)
+        except Exception as exc:
+            raise RuntimeError(f"CUDA-Q sequential data is not iterable: {type(seq)}") from exc
+        bits: List[str] = []
+        for val in entries:
+            text = str(val).strip().replace(" ", "")
+            if text.startswith("0b"):
+                text = text[2:]
+            bits.append(text[-1] if text else "0")
+        if len(bits) < shots:
+            bits.extend(["0"] * (shots - len(bits)))
+        return bits[:shots]
+
     def _reconstruct_bitstrings(self, result, shots: int) -> List[str]:
         bond_names = self._bond_reg_names()
         atom_names = self._atom_reg_names()
         reg_order = bond_names + atom_names
         reg_bits: Dict[str, List[str]] = {}
         for name in reg_order:
-            counts_map = self._get_register_counts(result, name)
-            reg_bits[name] = self._expand_counts_1bit(counts_map, shots)
+            seq = None
+            try:
+                seq = result.get_sequential_data(name)
+            except Exception:
+                seq = None
+            if seq is not None:
+                reg_bits[name] = self._normalize_sequence_1bit(seq, shots)
+            else:
+                counts_map = self._get_register_counts(result, name)
+                reg_bits[name] = self._expand_counts_1bit(counts_map, shots)
 
         samples: List[str] = []
         for shot_idx in range(shots):

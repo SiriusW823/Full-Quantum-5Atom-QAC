@@ -16,10 +16,18 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import qiskit
-import qiskit_aer
-from qiskit import transpile
-from qiskit_aer import AerSimulator
+try:  # optional qiskit backend
+    import qiskit
+    import qiskit_aer
+    from qiskit import transpile
+    from qiskit_aer import AerSimulator
+    _HAS_QISKIT = True
+except ImportError:  # pragma: no cover - optional dependency
+    qiskit = None
+    qiskit_aer = None
+    transpile = None
+    AerSimulator = None
+    _HAS_QISKIT = False
 
 # ensure repo root on path
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -27,8 +35,6 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from env import FiveAtomMolEnv  # noqa: E402
-from qmg.sqmg_generator import SQMGQiskitGenerator  # noqa: E402
-
 try:  # optional CUDA-Q backend
     from qmg.cudaq_generator import CudaQMGGenerator  # type: ignore
 except Exception:  # pragma: no cover
@@ -73,6 +79,8 @@ def resolve_device(device: str, gpus: int) -> Tuple[str, int]:
 
 
 def print_aer_info(selected_device: str) -> None:
+    if not _HAS_QISKIT:
+        raise RuntimeError("qiskit is not installed; cannot use Aer backend.")
     try:
         available = AerSimulator().available_devices()
     except Exception:
@@ -83,6 +91,8 @@ def print_aer_info(selected_device: str) -> None:
 
 
 def create_aer_backend(seed: int | None, device: str, gpus: int) -> tuple[AerSimulator, bool]:
+    if not _HAS_QISKIT:
+        raise RuntimeError("qiskit is not installed; cannot use Aer backend.")
     if device != "gpu":
         return AerSimulator(seed_simulator=seed), False
     try:
@@ -105,7 +115,9 @@ def create_aer_backend(seed: int | None, device: str, gpus: int) -> tuple[AerSim
         return AerSimulator(seed_simulator=seed), False
 
 
-def configure_generator_backend(gen: SQMGQiskitGenerator, backend: AerSimulator) -> None:
+def configure_generator_backend(gen, backend: AerSimulator) -> None:
+    if not _HAS_QISKIT:
+        raise RuntimeError("qiskit is not installed; cannot use Aer backend.")
     gen.backend = backend
     gen._compiled = transpile(gen.base_circuit, backend, optimization_level=1)
 
@@ -290,6 +302,10 @@ def run_one_train(
         except Exception:
             print("[warn] cudaq backend selected but unable to query cudaq details.")
     else:
+        if not _HAS_QISKIT:
+            raise RuntimeError("qiskit backend requested but qiskit is not installed.")
+        from qmg.sqmg_generator import SQMGQiskitGenerator  # noqa: WPS433
+
         qmg = SQMGQiskitGenerator(
             atom_layers=atom_layers,
             bond_layers=bond_layers,

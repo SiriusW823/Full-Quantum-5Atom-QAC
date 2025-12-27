@@ -6,9 +6,16 @@ Constructor defaults: n_qubits=8 and n_layers=2, both tunable.
 from __future__ import annotations
 
 import numpy as np
-from qiskit import QuantumCircuit
-from qiskit.circuit import ParameterVector
-from qiskit.quantum_info import Statevector
+try:  # optional dependency
+    from qiskit import QuantumCircuit
+    from qiskit.circuit import ParameterVector
+    from qiskit.quantum_info import Statevector
+    _HAS_QISKIT = True
+except ImportError:  # pragma: no cover - optional dependency
+    QuantumCircuit = None
+    ParameterVector = None
+    Statevector = None
+    _HAS_QISKIT = False
 
 from qrl.actor import _state_to_angles, _z_expectations_from_statevector
 
@@ -32,6 +39,8 @@ class QiskitQuantumCritic:
         n_layers: int = 2,
         seed: int | None = None,
     ) -> None:
+        if not _HAS_QISKIT:
+            raise RuntimeError("qiskit is not installed; install requirements-cpu.txt")
         self.state_dim = int(state_dim)
         self.n_qubits = int(n_qubits)
         self.n_layers = int(n_layers)

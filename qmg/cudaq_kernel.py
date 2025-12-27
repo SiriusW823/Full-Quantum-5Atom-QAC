@@ -151,6 +151,10 @@ def build_sqmg_cudaq_kernel(
 
             _mz(q[bond_start + 0], f"b{edge_idx:02d}_0")
             _mz(q[bond_start + 1], f"b{edge_idx:02d}_1")
+            _reset(q[bond_start + 0])
+            _reset(q[bond_start + 1])
+            _reset(q[anc_start + 0])
+            _reset(q[anc_start + 1])
 
         for atom_idx in range(n_atoms):
             for off in range(atom_q):

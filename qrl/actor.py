@@ -8,9 +8,16 @@ from __future__ import annotations
 from typing import List, Tuple
 
 import numpy as np
-from qiskit import QuantumCircuit
-from qiskit.circuit import ParameterVector
-from qiskit.quantum_info import Statevector
+try:  # optional dependency
+    from qiskit import QuantumCircuit
+    from qiskit.circuit import ParameterVector
+    from qiskit.quantum_info import Statevector
+    _HAS_QISKIT = True
+except ImportError:  # pragma: no cover - optional dependency
+    QuantumCircuit = None
+    ParameterVector = None
+    Statevector = None
+    _HAS_QISKIT = False
 
 import importlib
 
@@ -94,6 +101,8 @@ class QiskitQuantumActor:
         sigma_max: float = 0.50,
         seed: int | None = None,
     ) -> None:
+        if not _HAS_QISKIT:
+            raise RuntimeError("qiskit is not installed; install requirements-cpu.txt")
         self.state_dim = int(state_dim)
         self.n_qubits = int(n_qubits)
         self.n_layers = int(n_layers)
