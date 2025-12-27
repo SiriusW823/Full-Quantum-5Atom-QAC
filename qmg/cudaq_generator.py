@@ -77,6 +77,7 @@ class CudaQMGGenerator:
         self.rng = np.random.default_rng(seed)
         self.env = FiveAtomMolEnv(repair_bonds=repair_bonds)
         self.device = device
+        self._last_bitstrings: List[str] = []
 
         self.kernel, self.num_params = build_sqmg_cudaq_kernel(
             atom_layers=self.atom_layers, bond_layers=self.bond_layers
@@ -102,13 +103,71 @@ class CudaQMGGenerator:
         assert new_w.shape == self.weights.shape
         self.weights = np.array(new_w, copy=True)
 
+    def _bond_reg_names(self) -> List[str]:
+        return [
+            f"b{edge_idx:02d}_{bit}"
+            for edge_idx in range(len(EDGE_LIST))
+            for bit in range(2)
+        ]
+
+    def _atom_reg_names(self) -> List[str]:
+        return [f"a{atom_idx:02d}_{bit}" for atom_idx in range(5) for bit in range(3)]
+
+    def _get_register_counts(self, result, name: str) -> Dict[str, int]:
+        try:
+            return result.counts(name)
+        except Exception:
+            pass
+        try:
+            return result.get_counts(name)
+        except Exception:
+            pass
+        try:
+            counts = result.counts()
+        except Exception:
+            pass
+        else:
+            if isinstance(counts, dict) and name in counts:
+                return counts[name]
+        raise RuntimeError(f"Unable to access CUDA-Q counts for register '{name}'")
+
     def _expand_counts(self, counts: Dict[str, int], shots: int) -> List[str]:
         samples: List[str] = []
         for bitstring, count in counts.items():
-            samples.extend([bitstring] * int(count))
+            bits = str(bitstring).strip().replace(" ", "")
+            if bits.startswith("0b"):
+                bits = bits[2:]
+            bit = bits[-1] if bits else "0"
+            samples.extend([bit] * int(count))
+        if not samples:
+            return ["0"] * shots
+        self.rng.shuffle(samples)
         if len(samples) < shots:
-            samples.extend([samples[-1]] * (shots - len(samples)))
-        return samples[:shots]
+            samples.extend(["0"] * (shots - len(samples)))
+        else:
+            samples = samples[:shots]
+        return samples
+
+    def _reconstruct_bitstrings(self, result, shots: int) -> List[str]:
+        bond_names = self._bond_reg_names()
+        atom_names = self._atom_reg_names()
+        reg_order = bond_names + atom_names
+        reg_bits: Dict[str, List[str]] = {}
+        for name in reg_order:
+            counts = self._get_register_counts(result, name)
+            try:
+                counts_map = dict(counts)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"CUDA-Q counts for register '{name}' must be dict-like, got {type(counts)}"
+                ) from exc
+            reg_bits[name] = self._expand_counts(counts_map, shots)
+
+        samples: List[str] = []
+        for shot_idx in range(shots):
+            bits = "".join(reg_bits[name][shot_idx] for name in reg_order)
+            samples.append(bits)
+        return samples
 
     def _decode_shot(self, bitstring: str) -> Tuple[List[int], List[int]]:
         bits = bitstring.replace(" ", "")
@@ -135,14 +194,11 @@ class CudaQMGGenerator:
         return atom_ids, bond_ids
 
     def sample_actions(self, batch_size: int = 1) -> SampledBatch:
-        counts = self._cudaq.sample(
+        result = self._cudaq.sample(
             self.kernel, self.weights.tolist(), shots_count=batch_size
         )
-        if hasattr(counts, "counts"):
-            count_map = counts.counts()
-        else:
-            count_map = counts
-        samples = self._expand_counts(count_map, batch_size)
+        samples = self._reconstruct_bitstrings(result, batch_size)
+        self._last_bitstrings = samples
 
         atoms_batch = np.zeros((batch_size, 5), dtype=int)
         bonds_batch = np.zeros((batch_size, len(EDGE_LIST)), dtype=int)

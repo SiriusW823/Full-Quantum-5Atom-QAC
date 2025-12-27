@@ -80,8 +80,8 @@ def build_sqmg_cudaq_kernel(
         def _reset(target):
             kernel.reset(target)
 
-        def _mz(target):
-            kernel.mz(target)
+        def _mz(target, reg_name):
+            kernel.mz(target, reg_name)
 
         def _mcx(controls, target):
             if len(controls) == 1:
@@ -119,7 +119,7 @@ def build_sqmg_cudaq_kernel(
                 _mcx([q[base]], q[base + 1])
                 _mcx([q[base + 1]], q[base + 2])
 
-        for i, j in edges:
+        for edge_idx, (i, j) in enumerate(edges):
             _reset(q[bond_start + 0])
             _reset(q[bond_start + 1])
 
@@ -149,11 +149,12 @@ def build_sqmg_cudaq_kernel(
             _compute_none_flag(atom_j, anc_start + 1)
             _compute_none_flag(atom_i, anc_start + 0)
 
-            _mz(q[bond_start + 0])
-            _mz(q[bond_start + 1])
+            _mz(q[bond_start + 0], f"b{edge_idx:02d}_0")
+            _mz(q[bond_start + 1], f"b{edge_idx:02d}_1")
 
-        for idx in range(n_atoms * atom_q):
-            _mz(q[idx])
+        for atom_idx in range(n_atoms):
+            for off in range(atom_q):
+                _mz(q[atom_idx * atom_q + off], f"a{atom_idx:02d}_{off}")
     except Exception as exc:
         raise RuntimeError("cudaq is installed but failed to build SQMG kernel") from exc
 

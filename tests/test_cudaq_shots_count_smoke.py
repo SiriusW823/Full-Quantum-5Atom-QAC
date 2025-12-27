@@ -16,6 +16,8 @@ def test_cudaq_shots_count_smoke(tmp_path: Path):
     batch = gen.sample_actions(batch_size=2)
     assert batch.atoms.shape == (2, 5)
     assert batch.bonds.shape[0] == 2
+    if gen._last_bitstrings:
+        assert len(gen._last_bitstrings[0]) == 35
 
     out_dir = tmp_path / "cudaq_run"
     run_one_train(
